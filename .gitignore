@@ -1,0 +1,10 @@
+
+# IDE konfiguracija
+.idea/
+*.iml
+
+# Target / build folderi
+target/
+out/
+
+src/main/resources/application-secret.properties

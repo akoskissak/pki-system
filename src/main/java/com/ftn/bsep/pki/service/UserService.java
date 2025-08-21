@@ -1,6 +1,7 @@
 package com.ftn.bsep.pki.service;
 
 import com.ftn.bsep.pki.dto.ApiResponse;
+import com.ftn.bsep.pki.dto.AuthResult;
 import com.ftn.bsep.pki.dto.RegisterRequest;
 import com.ftn.bsep.pki.entity.Role;
 import com.ftn.bsep.pki.entity.RoleName;
@@ -85,5 +86,23 @@ public class UserService {
 
   private String buildEmail(String name, String link) {
     return "Hello " + name + ",\n\nPlease click the following link to activate your account:\n" + link;
+  }
+  
+  public AuthResult authenticate(String email, String password) {
+    Optional<User> optionalUser = userRepository.findByEmail(email);
+    if (optionalUser.isEmpty()) {
+      return new AuthResult(false, "User does not exist");
+    }
+    
+    User user = optionalUser.get();
+    
+    boolean passwordMatches = passwordEncoder.matches(password, user.getPassword());
+    if(!user.isEnabled())
+      return new AuthResult(false, "Account is not verified");
+    
+    if(passwordMatches)
+      return new AuthResult(true, "Successful login");
+    
+    return new AuthResult(false, "Wrong email or password");
   }
 }

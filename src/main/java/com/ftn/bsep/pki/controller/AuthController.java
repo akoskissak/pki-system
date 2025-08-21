@@ -1,10 +1,15 @@
 package com.ftn.bsep.pki.controller;
 
 import com.ftn.bsep.pki.dto.ApiResponse;
+import com.ftn.bsep.pki.dto.AuthResult;
+import com.ftn.bsep.pki.dto.LoginRequest;
 import com.ftn.bsep.pki.dto.RegisterRequest;
+import com.ftn.bsep.pki.service.JwtService;
+import com.ftn.bsep.pki.service.RecaptchaService;
 import com.ftn.bsep.pki.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,10 +18,14 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
   private final UserService userService;
+  private final RecaptchaService recaptchaService;
+  private final JwtService jwtService;
 
   @Autowired
-  public AuthController(UserService userService) {
+  public AuthController(UserService userService, RecaptchaService recaptchaService, JwtService jwtService) {
     this.userService = userService;
+    this.recaptchaService = recaptchaService;
+    this.jwtService = jwtService;
   }
 
   @PostMapping("/register")
@@ -37,5 +46,21 @@ public class AuthController {
     } else {
       return ResponseEntity.ok(response);
     }
+  }
+  
+  @PostMapping("/login")
+  public ResponseEntity<ApiResponse> login(@RequestBody LoginRequest request) {
+    if (!recaptchaService.verify(request.getRecaptcha())) {
+      return ResponseEntity.badRequest().body(ApiResponse.failure("CAPTCHA verification failed"));
+    }
+    
+    AuthResult authenticated = userService.authenticate(request.getEmail(), request.getPassword());
+    if(!authenticated.isSuccess()) {
+      return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+              .body(ApiResponse.failure(authenticated.getMessage()));
+    }
+    
+    String token = jwtService.generateToken(request.getEmail());
+    return ResponseEntity.ok(ApiResponse.successWithData("Successful login", token));
   }
 }
