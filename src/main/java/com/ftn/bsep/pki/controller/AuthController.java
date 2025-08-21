@@ -1,10 +1,8 @@
 package com.ftn.bsep.pki.controller;
 
-import com.ftn.bsep.pki.dto.ApiResponse;
-import com.ftn.bsep.pki.dto.AuthResult;
-import com.ftn.bsep.pki.dto.LoginRequest;
-import com.ftn.bsep.pki.dto.RegisterRequest;
+import com.ftn.bsep.pki.dto.*;
 import com.ftn.bsep.pki.service.JwtService;
+import com.ftn.bsep.pki.service.PasswordResetService;
 import com.ftn.bsep.pki.service.RecaptchaService;
 import com.ftn.bsep.pki.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -20,12 +18,14 @@ public class AuthController {
   private final UserService userService;
   private final RecaptchaService recaptchaService;
   private final JwtService jwtService;
+  private final PasswordResetService passwordResetService;
 
   @Autowired
-  public AuthController(UserService userService, RecaptchaService recaptchaService, JwtService jwtService) {
+  public AuthController(UserService userService, RecaptchaService recaptchaService, JwtService jwtService, PasswordResetService passwordResetService) {
     this.userService = userService;
     this.recaptchaService = recaptchaService;
     this.jwtService = jwtService;
+    this.passwordResetService = passwordResetService;
   }
 
   @PostMapping("/register")
@@ -62,5 +62,24 @@ public class AuthController {
     
     String token = jwtService.generateToken(request.getEmail());
     return ResponseEntity.ok(ApiResponse.successWithData("Successful login", token));
+  }
+  
+  @PostMapping("/forgot-password")
+  public ResponseEntity<AuthResult> forgotPassword(@RequestBody ForgotPasswordRequest request) {
+    AuthResult result = passwordResetService.createPasswordResetToken(request.getEmail());
+    if(!result.isSuccess()) {
+      return ResponseEntity.badRequest().body(result);
+    }
+    return ResponseEntity.ok(result);
+  }
+  
+  @PostMapping("/reset-password")
+  public ResponseEntity<ApiResponse> resetPassword(@RequestBody ResetPasswordRequest request) {
+    ApiResponse response = passwordResetService.resetPassword(request);
+    if(response.getError() != null) {
+      return ResponseEntity.badRequest().body(response);
+    } else {
+      return ResponseEntity.ok(response);
+    }
   }
 }

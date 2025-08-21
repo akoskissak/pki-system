@@ -26,17 +26,27 @@ public class UserService {
   private final PasswordEncoder passwordEncoder;
   private final EmailService emailService;
   private final IRoleRepository roleRepository;
+  private final PasswordStrengthService passwordStrengthService;
 
   public ApiResponse register(RegisterRequest request) {
     if (userRepository.existsByEmail(request.getEmail())) {
       return ApiResponse.failure("Email already in use");
+    }
+    
+    if(!isValidEmail(request.getEmail())) {
+      return ApiResponse.failure("Email is not valid");
     }
 
     if (!request.getPassword().equals(request.getConfirmPassword())) {
       return ApiResponse.failure("Passwords do not match");
     }
     Role userRole = roleRepository.findByName(RoleName.END_USER).orElseThrow(() -> new IllegalStateException("Role END_USER not found"));
-
+    
+    ApiResponse response = passwordStrengthService.validatePassword(request.getPassword());
+    if(response.getError() != null) {
+      return response;
+    }
+    
     User user = new User();
     user.setEmail(request.getEmail());
     user.setPassword(passwordEncoder.encode(request.getPassword()));
@@ -104,5 +114,12 @@ public class UserService {
       return new AuthResult(true, "Successful login");
     
     return new AuthResult(false, "Wrong email or password");
+  }
+  
+  public boolean isValidEmail(String email) {
+    if (email == null || email.isEmpty()) return false;
+    
+    String emailRegex = "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$";
+    return email.matches(emailRegex);
   }
 }

@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 @Getter
 @Setter
 @NoArgsConstructor
-@Table(name = "verification_token")
+@Table(name = "verification_tokens")
 public class VerificationToken {
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
