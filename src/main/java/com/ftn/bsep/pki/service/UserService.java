@@ -10,6 +10,8 @@ import com.ftn.bsep.pki.entity.VerificationToken;
 import com.ftn.bsep.pki.repository.IRoleRepository;
 import com.ftn.bsep.pki.repository.IVerificationTokenRepository;
 import com.ftn.bsep.pki.repository.IUserRepository;
+import com.ftn.bsep.pki.session.SessionInfo;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -121,5 +123,37 @@ public class UserService {
     
     String emailRegex = "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$";
     return email.matches(emailRegex);
+  }
+  
+  public SessionInfo createSession(String tokenId, String email, HttpServletRequest request) {
+    SessionInfo sessionInfo = new SessionInfo();
+    sessionInfo.setTokenId(tokenId);
+    sessionInfo.setEmail(email);
+    
+    String ipAddress = request.getHeader("X-Forwarder-For");
+    if(ipAddress != null && !ipAddress.isEmpty()) {
+      ipAddress = ipAddress.split(",")[0].trim();
+    } else {
+      ipAddress = request.getRemoteAddr();
+    }
+    if("0:0:0:0:0:0:0:1".equals(ipAddress) || "::1".equals(ipAddress)) {
+      ipAddress = "127.0.0.1";
+    }
+    
+    sessionInfo.setIpAddress(ipAddress);
+    
+    sessionInfo.setUserAgent(request.getHeader("User-Agent"));
+    sessionInfo.setIssuedAt(LocalDateTime.now());
+    sessionInfo.setLastActivity(LocalDateTime.now());
+    
+    return sessionInfo;
+  }
+  
+  public User getByEmail(String email){
+    Optional<User> user = userRepository.findByEmail(email);
+    if(user.isEmpty()) {
+      return null;
+    }
+    return user.get();
   }
 }
