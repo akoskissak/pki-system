@@ -59,9 +59,9 @@ public class AuthController {
   
   @PostMapping("/login")
   public ResponseEntity<ApiResponse> login(@RequestBody LoginRequest request, HttpServletRequest req) {
-    if (!recaptchaService.verify(request.getRecaptcha())) {
+    /*if (!recaptchaService.verify(request.getRecaptcha())) {
       return ResponseEntity.badRequest().body(ApiResponse.failure("CAPTCHA verification failed"));
-    }
+    }*/
     
     AuthResult authenticated = userService.authenticate(request.getEmail(), request.getPassword());
     if(!authenticated.isSuccess()) {

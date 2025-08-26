@@ -1,3 +1,6 @@
+*.p12
+/data/pki/keystores/
+/logs/
 
 # IDE konfiguracija
 .idea/
