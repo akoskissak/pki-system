@@ -30,5 +30,8 @@ public class User {
   @ManyToOne(fetch = FetchType.EAGER)
   @JoinColumn(name = "role_id", referencedColumnName = "id")
   private Role role;
+
+  @Column(name = "symmetric_key", columnDefinition = "TEXT")
+  private String symmetricKey;
   
 }

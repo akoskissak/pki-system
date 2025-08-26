@@ -7,5 +7,5 @@ public record SelfSignedRequest(
         String organization,
         String organizationalUnit,
         String country,
-        String password
+        Long ownerId
 ) {}
