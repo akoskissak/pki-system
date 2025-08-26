@@ -55,7 +55,7 @@ public class KeyStoreService {
     /**
      * Kreira PKCS12 fajl i snima self-signed sertifikat u njega.
      */
-    public Path saveCertificate(X509Certificate cert, PrivateKey privateKey, String alias, char[] password) throws Exception {
+   /* public Path saveCertificate(X509Certificate cert, PrivateKey privateKey, String alias, char[] password) throws Exception {
         Path dir = Paths.get(cfg.getCaDir());
         Files.createDirectories(dir);
         Path p12 = dir.resolve(alias + ".p12");
@@ -63,6 +63,23 @@ public class KeyStoreService {
         KeyStore ks = KeyStore.getInstance("PKCS12");
         ks.load(null, password);
         ks.setKeyEntry(alias, privateKey, password, new X509Certificate[]{cert});
+
+        try (FileOutputStream fos = new FileOutputStream(p12.toFile())) {
+            ks.store(fos, password);
+        }
+
+        return p12;
+    }*/
+
+    public Path saveCertificateChain(X509Certificate[] chain, PrivateKey privateKey, String alias, char[] password) throws Exception {
+        Path dir = Paths.get(cfg.getCaDir());
+        Files.createDirectories(dir);
+        Path p12 = dir.resolve(alias + ".p12");
+
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        ks.load(null, password);
+
+        ks.setKeyEntry(alias, privateKey, password, chain);
 
         try (FileOutputStream fos = new FileOutputStream(p12.toFile())) {
             ks.store(fos, password);

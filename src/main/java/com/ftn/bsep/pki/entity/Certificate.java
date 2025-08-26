@@ -55,4 +55,13 @@ public class Certificate {
     @ManyToOne
     @JoinColumn(name = "parent_certificate_id")
     private Certificate parentCertificate;
+
+    @Column(nullable = false)
+    private boolean isRevoked;
+
+    @Column(nullable = false)
+    private String keyStorePath;
+
+    @Column(nullable = false)
+    private String keyStorePassword;
 }
