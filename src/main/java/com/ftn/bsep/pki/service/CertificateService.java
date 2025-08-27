@@ -110,122 +110,6 @@ public class CertificateService {
         return new SelfSignedResponse("CN=" + req.commonName(), p12.toString());
     }
 
-    /*public Certificate issueIntermediate(IntermediateRequest req) throws Exception {
-        // --- Učitavanje issuer sertifikata ---
-        Certificate issuerCertEntity = certificateRepository.findById(req.issuerId())
-                .orElseThrow(() -> new RuntimeException("Issuer certificate not found"));
-
-        if (issuerCertEntity.isRevoked()) {
-            throw new Exception("Issuer certificate is revoked");
-        }
-
-        Instant now = Instant.now();
-        if (now.isBefore(issuerCertEntity.getNotBefore()) || now.isAfter(issuerCertEntity.getNotAfter())) {
-            throw new Exception("Issuer certificate is not valid currently.");
-        }
-
-        User issuerOwner = userRepository.findById(req.issuerOwnerId())
-                .orElseThrow(() -> new RuntimeException("Issuer owner not found"));
-
-        String plainPassword = encryptionService.decrypt(
-                issuerCertEntity.getKeyStorePassword(),
-                issuerOwner.getSymmetricKey()
-        );
-
-        KeyStore ks = KeyStore.getInstance("PKCS12");
-        try (var fis = new java.io.FileInputStream(issuerCertEntity.getKeyStorePath())) {
-            ks.load(fis, plainPassword.toCharArray());
-        }
-
-        // --- Preuzimanje sertifikata izdavaoca ---
-        String issuerAlias = issuerCertEntity.getSerialNumber(); // alias koji je korišćen u root CA
-        X509Certificate issuerCert = (X509Certificate) ks.getCertificate(issuerAlias);
-
-        if (issuerCert == null) {
-            throw new RuntimeException("Issuer certificate not found in keystore.");
-        }
-
-        java.security.cert.Certificate[] issuerChain = ks.getCertificateChain(issuerAlias);
-        if (issuerChain == null || issuerChain.length == 0) {
-            // Root CA ima samo jedan sertifikat
-            issuerChain = new java.security.cert.Certificate[]{issuerCert};
-        }
-
-        // --- Validacija chain-a ---
-        validateCertificateChain(issuerChain);
-
-        PrivateKey issuerPrivateKey = (PrivateKey) ks.getKey(issuerAlias, plainPassword.toCharArray());
-
-        // --- Kreiranje novog sertifikata ---
-        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(2048);
-        KeyPair subjectKeyPair = kpg.generateKeyPair();
-
-        X500NameBuilder subjectBuilder = new X500NameBuilder(BCStyle.INSTANCE);
-        subjectBuilder.addRDN(BCStyle.CN, req.commonName());
-        subjectBuilder.addRDN(BCStyle.O, req.organization());
-        subjectBuilder.addRDN(BCStyle.OU, req.organizationalUnit());
-        subjectBuilder.addRDN(BCStyle.C, req.country());
-
-        Subject subject = new Subject();
-        subject.setPublicKey(subjectKeyPair.getPublic());
-        subject.setX500Name(subjectBuilder.build());
-        subject.setSerialNumber(new BigInteger(64, new SecureRandom()));
-        subject.setStartDate(Date.from(now));
-        subject.setEndDate(Date.from(now.plus(req.validityDays(), ChronoUnit.DAYS)));
-
-        Issuer issuer = new Issuer();
-        issuer.setPrivateKey(issuerPrivateKey);
-        issuer.setX500Name(new X500Name(issuerCert.getSubjectX500Principal().getName()));
-
-        X509Certificate newCert = keyStoreService.generateCertificate(subject, issuer, CertificateType.INTERMEDIATE, req.extensions());
-
-        // --- Pravi fullChain: novi certifikat + chain izdavaoca ---
-        X509Certificate[] fullChain = new X509Certificate[1 + issuerChain.length];
-        fullChain[0] = newCert;
-
-        for (int i = 0; i < issuerChain.length; i++) {
-            fullChain[i + 1] = (X509Certificate) issuerChain[i];
-        }
-
-        // --- Verifikacija digitalnog potpisa novog sertifikata ---
-        try {
-            newCert.verify(issuerCert.getPublicKey());
-        } catch (Exception e) {
-            throw new RuntimeException("Digital signature of new certificate is invalid: " + e.getMessage());
-        }
-
-        // --- Čuvanje u keystore ---
-        String keyStorePassword = RandomStringUtils.randomAlphanumeric(16);
-        Path p12 = keyStoreService.saveCertificateChain(
-                fullChain,
-                subjectKeyPair.getPrivate(),
-                newCert.getSerialNumber().toString(),
-                keyStorePassword.toCharArray()
-        );
-
-        String encryptedPassword = encryptionService.encrypt(keyStorePassword, issuerOwner.getSymmetricKey());
-
-        // --- Čuvanje u bazi ---
-        Certificate entity = new Certificate();
-        entity.setSerialNumber(newCert.getSerialNumber().toString());
-        entity.setSubjectCommonName(req.commonName());
-        entity.setSubjectOrganization(req.organization());
-        entity.setSubjectOrganizationalUnit(req.organizationalUnit());
-        entity.setSubjectCountry(req.country());
-        entity.setIssuerCommonName(issuerCertEntity.getSubjectCommonName());
-        entity.setIssuerOrganization(issuerCertEntity.getSubjectOrganization());
-        entity.setNotBefore(newCert.getNotBefore().toInstant());
-        entity.setNotAfter(newCert.getNotAfter().toInstant());
-        entity.setType(CertificateType.INTERMEDIATE);
-        entity.setParentCertificate(issuerCertEntity);
-        entity.setRevoked(false);
-        entity.setKeyStorePath(p12.toString());
-        entity.setKeyStorePassword(encryptedPassword);
-
-        return certificateRepository.save(entity);
-    }*/
-
     public Certificate issueIntermediate(IntermediateRequest req) throws Exception {
         System.out.println("➡️ Starting issueIntermediate for: " + req.commonName());
 
@@ -311,13 +195,9 @@ public class CertificateService {
         subject.setStartDate(Date.from(now));
         subject.setEndDate(Date.from(now.plus(req.validityDays(), ChronoUnit.DAYS)));
 
-        /*Issuer issuer = new Issuer();
-        issuer.setPrivateKey(issuerPrivateKey);
-        issuer.setX500Name(new X500Name(issuerCert.getSubjectX500Principal().getName()));*/
         Issuer issuer = new Issuer();
         issuer.setPrivateKey(issuerPrivateKey);
 
-// Dobijamo identičan issuer DN kao u originalnom certifikatu
         X500Principal issuerPrincipal = issuerCert.getSubjectX500Principal();
         issuer.setX500Name(X500Name.getInstance(issuerPrincipal.getEncoded()));
         System.out.println("Issuer X500Name: " + issuer.getX500Name());
@@ -346,7 +226,6 @@ public class CertificateService {
             throw new RuntimeException("Digital signature of new certificate is invalid: " + e.getMessage());
         }
 
-        // --- Čuvanje u keystore ---
         String keyStorePassword = RandomStringUtils.randomAlphanumeric(16);
         Path p12 = keyStoreService.saveCertificateChain(
                 fullChain,
@@ -358,7 +237,6 @@ public class CertificateService {
 
         String encryptedPassword = encryptionService.encrypt(keyStorePassword, issuerOwner.getSymmetricKey());
 
-        // --- Čuvanje u bazi ---
         Certificate entity = new Certificate();
         entity.setSerialNumber(newCert.getSerialNumber().toString());
         entity.setSubjectCommonName(req.commonName());
