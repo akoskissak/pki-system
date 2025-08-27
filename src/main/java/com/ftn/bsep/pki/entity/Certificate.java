@@ -21,10 +21,10 @@ public class Certificate {
     @Column(nullable = false)
     private String subjectCommonName;
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private String subjectSurname;
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private String subjectGivenname;
 
     @Column(nullable = false)
