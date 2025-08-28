@@ -1,10 +1,7 @@
 package com.ftn.bsep.pki.service;
  
 import com.ftn.bsep.pki.entity.Role;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.JwtException;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -22,17 +19,21 @@ public class JwtService {
     @Value("${jwt.expiration}")
     private long expiration;
     
-    public String generateToken(String email, Role role) {
+    public String generateToken(String email, Role role, boolean mustChangePassword) {
         String tokenId = UUID.randomUUID().toString();
         
-        return Jwts.builder()
-                .setId(tokenId)
-                .setSubject(email)
-                .claim("role", role.getName())
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8)), SignatureAlgorithm.HS256)
-                .compact();
+        JwtBuilder builder = Jwts.builder()
+                            .setId(tokenId)
+                            .setSubject(email)
+                            .claim("role", role.getName())
+                            .setIssuedAt(new Date())
+                            .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                            .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8)), SignatureAlgorithm.HS256);
+        if (mustChangePassword) {
+            builder.claim("mustChangePassword", true);
+        }
+        
+        return builder.compact();
     }
     
     public boolean validateToken(String token) {
