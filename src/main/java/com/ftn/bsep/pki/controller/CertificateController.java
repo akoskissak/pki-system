@@ -8,6 +8,7 @@ import com.ftn.bsep.pki.service.CertificateService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/certificates")
@@ -36,5 +37,42 @@ public class CertificateController {
                         certEntity.getKeyStorePath()
                 )
         );
+    }
+
+    @PostMapping("/csr")
+    @PreAuthorize("hasRole('ROLE_CA_USER') or hasRole('ROLE_ADMIN')")
+    public ResponseEntity<CertificateResponse> issueFromCsr(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("issuerId") Long issuerId,
+            @RequestParam("issuerOwnerId") Long issuerOwnerId,
+            @RequestParam("validityDays") int validityDays
+    ) throws Exception {
+
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException("CSR file is empty.");
+        }
+
+        var certEntity = service.issueFromCsr(file, issuerId, issuerOwnerId, validityDays);
+
+        return ResponseEntity.ok(
+                new CertificateResponse(
+                        certEntity.getSerialNumber(),
+                        certEntity.getSubjectCommonName(),
+                        certEntity.getIssuerCommonName(),
+                        certEntity.getKeyStorePath()
+                )
+        );
+    }
+
+    @PostMapping("/submit-csr")
+    @PreAuthorize("hasRole('ROLE_END_USER')")
+    public ResponseEntity<String> submitCsr(@RequestParam("file") MultipartFile file) throws Exception {
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body("CSR file is empty.");
+        }
+
+        service.handlePendingCsr(file);
+
+        return ResponseEntity.ok("CSR submitted successfully. Awaiting approval.");
     }
 }
