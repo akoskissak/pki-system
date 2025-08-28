@@ -1,14 +1,13 @@
 package com.ftn.bsep.pki.controller;
 
-import com.ftn.bsep.pki.dto.CertificateResponse;
-import com.ftn.bsep.pki.dto.IntermediateRequest;
-import com.ftn.bsep.pki.dto.SelfSignedRequest;
-import com.ftn.bsep.pki.dto.SelfSignedResponse;
+import com.ftn.bsep.pki.dto.*;
 import com.ftn.bsep.pki.service.CertificateService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/certificates")
@@ -66,13 +65,25 @@ public class CertificateController {
 
     @PostMapping("/submit-csr")
     @PreAuthorize("hasRole('ROLE_END_USER')")
-    public ResponseEntity<String> submitCsr(@RequestParam("file") MultipartFile file) throws Exception {
+    public ResponseEntity<String> submitCsr(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("issuerId") String issuerId,
+            @RequestParam("validityDays") Integer validityDays
+    ) throws Exception {
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().body("CSR file is empty.");
         }
 
-        service.handlePendingCsr(file);
+        // Prosleđivanje novih parametara servisu
+        service.handlePendingCsr(file, issuerId, validityDays);
 
         return ResponseEntity.ok("CSR submitted successfully. Awaiting approval.");
+    }
+
+    @GetMapping("/ca-certs")
+    @PreAuthorize("hasRole('ROLE_END_USER')")
+    public ResponseEntity<List<IntermediateResponse>> getCAs() {
+        var caList = service.getAllCAs();
+        return ResponseEntity.ok(caList);
     }
 }

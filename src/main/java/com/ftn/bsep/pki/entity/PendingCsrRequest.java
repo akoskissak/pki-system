@@ -23,4 +23,10 @@ public class PendingCsrRequest {
 
     @Column(name = "submitted_at")
     private Instant submittedAt;
+
+    @Column(name = "issuer_id")
+    private String issuerId;
+
+    @Column(name = "validity_days")
+    private Integer validityDays;
 }

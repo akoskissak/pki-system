@@ -1,9 +1,6 @@
 package com.ftn.bsep.pki.service;
 
-import com.ftn.bsep.pki.dto.EndEntityRequest;
-import com.ftn.bsep.pki.dto.IntermediateRequest;
-import com.ftn.bsep.pki.dto.SelfSignedRequest;
-import com.ftn.bsep.pki.dto.SelfSignedResponse;
+import com.ftn.bsep.pki.dto.*;
 import com.ftn.bsep.pki.entity.*;
 import com.ftn.bsep.pki.entity.Certificate;
 import com.ftn.bsep.pki.repository.ICertificateRepository;
@@ -16,6 +13,9 @@ import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
 import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x500.style.IETFUtils;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
+import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -34,11 +34,13 @@ import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateNotYetValidException;
 import java.security.cert.X509Certificate;
 import java.security.spec.X509EncodedKeySpec;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.Date;
+import java.util.*;
+import java.util.stream.Collectors;
+
+import static com.ftn.bsep.pki.entity.CertificateType.INTERMEDIATE;
 
 @Service
 public class CertificateService {
@@ -221,7 +223,7 @@ public class CertificateService {
         System.out.println("Issuer X500Name: " + issuer.getX500Name());
 
         X509Certificate newCert = keyStoreService.generateCertificate(
-                subject, issuer, CertificateType.INTERMEDIATE, req.extensions()
+                subject, issuer, INTERMEDIATE, req.extensions()
         );
         System.out.println("Generated new intermediate cert");
         System.out.println("New cert subject: " + newCert.getSubjectX500Principal());
@@ -267,7 +269,7 @@ public class CertificateService {
         entity.setIssuerOrganization(issuerCertEntity.getSubjectOrganization());
         entity.setNotBefore(newCert.getNotBefore().toInstant());
         entity.setNotAfter(newCert.getNotAfter().toInstant());
-        entity.setType(CertificateType.INTERMEDIATE);
+        entity.setType(INTERMEDIATE);
         entity.setParentCertificate(issuerCertEntity);
         entity.setRevoked(false);
         entity.setKeyStorePath(p12.toString());
@@ -409,6 +411,19 @@ public class CertificateService {
                 throw new RuntimeException("CSR signature is invalid.");
             }
 
+            Extensions extensions = csr.getRequestedExtensions();
+            List<String> extList = new ArrayList<>();
+            if (extensions != null) {
+                Extension keyUsageExt = extensions.getExtension(Extension.keyUsage);
+                if (keyUsageExt != null) {
+                    KeyUsage ku = KeyUsage.getInstance(keyUsageExt.getParsedValue());
+                    if (ku.hasUsages(KeyUsage.digitalSignature)) extList.add("digitalSignature");
+                    if (ku.hasUsages(KeyUsage.nonRepudiation)) extList.add("nonRepudiation");
+                    if (ku.hasUsages(KeyUsage.keyEncipherment)) extList.add("keyEncipherment");
+                    if (ku.hasUsages(KeyUsage.dataEncipherment)) extList.add("dataEncipherment");
+                }
+            }
+
             // --- Kreiranje EndEntityRequest DTO-a iz CSR podataka ---
             EndEntityRequest req = new EndEntityRequest(
                     issuerId,
@@ -421,7 +436,7 @@ public class CertificateService {
                     organizationalUnit,
                     country,
                     validityDays,
-                    Collections.emptyList() // Ekstenzije iz CSR-a. Slozenije za parsiranje, pocnite sa praznom listom.
+                    extList
             );
 
             // Pozivanje postojece metode za izdavanje certifikata
@@ -467,7 +482,17 @@ public class CertificateService {
         }
     }
 
-    public void handlePendingCsr(MultipartFile csrFile) throws Exception {
+    public void handlePendingCsr(MultipartFile csrFile, String issuerId, Integer validityDays) throws Exception {
+        Certificate caCert = certificateRepository.findBySerialNumber(issuerId);
+        if (caCert == null) {
+            throw new IllegalArgumentException("Issuer CA not found.");
+        }
+
+        // 2. Proverite validnost
+        long caRemainingDays = Duration.between(Instant.now(), caCert.getNotAfter()).toDays();
+        if (validityDays > caRemainingDays) {
+            throw new IllegalArgumentException("Requested validity exceeds the remaining validity of the issuer CA.");
+        }
         try {
             // Čitajte sadržaj fajla kao tekst (PEM format)
             String csrContent = new String(csrFile.getBytes());
@@ -493,6 +518,8 @@ public class CertificateService {
             pendingRequest.setCsrContent(csrContent);
             pendingRequest.setCommonName(commonName);
             pendingRequest.setSubmittedAt(Instant.now());
+            pendingRequest.setIssuerId(issuerId);
+            pendingRequest.setValidityDays(validityDays);
 
             pendingCsrRepository.save(pendingRequest);
 
@@ -500,5 +527,24 @@ public class CertificateService {
         } catch (IOException e) {
             throw new Exception("Error reading CSR file: " + e.getMessage(), e);
         }
+    }
+
+    public List<IntermediateResponse> getAllCAs() {
+        List<Certificate> allCertificates = certificateRepository.findAll();
+
+        return allCertificates.stream()
+                .filter(cert -> cert.getType().equals(INTERMEDIATE)) // Poziva metodu iz entiteta
+                .map(cert -> {
+                    // Izračunaj trajanje u danima od danas do datuma isteka
+                    long validityDays = Duration.between(Instant.now(), cert.getNotAfter()).toDays();
+                    return new IntermediateResponse(
+                            cert.getSerialNumber(),
+                            cert.getSubjectCommonName(),
+                            cert.getIssuerCommonName(),
+                            cert.getKeyStorePath(),
+                            (int) validityDays
+                    );
+                })
+                .collect(Collectors.toList());
     }
 }
