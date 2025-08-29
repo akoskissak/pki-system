@@ -11,9 +11,13 @@ import java.util.List;
 @Repository
 public interface ICertificateRepository extends JpaRepository<Certificate, Long> {
 
+
     List<Certificate> findAllByOwnerId(Long ownerId);
 
     @Query("SELECT c FROM Certificate c " +
             "WHERE c.subjectOrganization = :orgName")
     List<Certificate> findAllByOrganization(@Param("orgName") String orgName);
+
+    Certificate findBySerialNumber(String issuerId);
+
 }

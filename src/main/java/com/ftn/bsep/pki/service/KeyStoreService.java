@@ -113,4 +113,27 @@ public class KeyStoreService {
         return p12;
     }
 
+    public Path saveEECertificate(X509Certificate certificate) {
+        try {
+            // Kreirajte folder za EE sertifikate ako ne postoji
+            Path eeCertsDir = Paths.get(cfg.getEeDir());
+            Files.createDirectories(eeCertsDir);
+
+            // Napravite naziv datoteke na osnovu serijskog broja sertifikata
+            String filename = certificate.getSerialNumber().toString() + ".cer";
+            Path filePath = eeCertsDir.resolve(filename);
+
+            // Zapisite certifikat u .DER formatu
+            try (FileOutputStream fos = new FileOutputStream(filePath.toFile())) {
+                fos.write(certificate.getEncoded());
+            }
+
+            System.out.println("✅ Saved EE certificate to: " + filePath);
+            return filePath;
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to save EE certificate.", e);
+        }
+    }
+
 }
