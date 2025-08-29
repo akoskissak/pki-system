@@ -22,7 +22,11 @@ import java.security.cert.CertificateNotYetValidException;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
+
+import static com.ftn.bsep.pki.entity.RoleName.CA_USER;
 
 @Service
 public class CertificateService {
@@ -104,6 +108,7 @@ public class CertificateService {
         certificateEntity.setRevoked(false);
         certificateEntity.setKeyStorePath(p12.toString());
         certificateEntity.setKeyStorePassword(encryptedPassword);
+        certificateEntity.setOwner(owner);
 
         certificateRepository.save(certificateEntity);
 
@@ -254,6 +259,21 @@ public class CertificateService {
         entity.setRevoked(false);
         entity.setKeyStorePath(p12.toString());
         entity.setKeyStorePassword(encryptedPassword);
+        entity.setOwner(issuerOwner);
+
+        if("CA_USER".equals(issuerOwner.getRole().getName().toString())) {
+            if (!req.organization().equals(issuerOwner.getOrganization())) {
+                throw new RuntimeException("CA user cannot issue certificate for another organization");
+            }
+        }
+
+        // --- Ograničenje trajanja sertifikata ---
+        Instant requestedNotAfter = now.plus(req.validityDays(), ChronoUnit.DAYS);
+        if (requestedNotAfter.isAfter(issuerCertEntity.getNotAfter())) {
+            throw new RuntimeException("Cannot issue certificate that expires after the issuer certificate");
+        }
+
+
 
         System.out.println("✅ Intermediate certificate created successfully: " + entity.getSerialNumber());
 
@@ -285,5 +305,17 @@ public class CertificateService {
                 throw new Exception("Digital signature of the certificate in the chain is invalid: " + currentCert.getSubjectX500Principal().getName() + ". Razlog: " + e.getMessage());
             }
         }
+    }
+
+    public List<Certificate> getCertificatesForUser(User user) {
+        String role = String.valueOf(user.getRole().getName());
+
+        if ("ADMIN".equals(role)) {
+            return certificateRepository.findAll();
+        } else if ("CA_USER".equals(role)) {
+            return certificateRepository.findAllByOrganization(user.getOrganization());
+        }
+
+        return new ArrayList<>();
     }
 }
