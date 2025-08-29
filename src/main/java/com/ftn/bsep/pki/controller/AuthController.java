@@ -75,7 +75,7 @@ public class AuthController {
 
     boolean mustChangePassword = userService.mustChangePassword(user);
     
-    String token = jwtService.generateToken(request.getEmail(), user.getRole(), mustChangePassword);
+    String token = jwtService.generateToken(request.getEmail(), user.getRole(), user.getId(), mustChangePassword);
     
     SessionInfo sessionInfo = userService.createSession(jwtService.getTokenClaims(token).getId(), request.getEmail(), req);
     sessionManager.addSession(sessionInfo);
