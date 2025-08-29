@@ -1,6 +1,8 @@
 package com.ftn.bsep.pki.controller;
 
 import com.ftn.bsep.pki.dto.*;
+import com.ftn.bsep.pki.entity.CAUserDetails;
+import com.ftn.bsep.pki.entity.RoleName;
 import com.ftn.bsep.pki.entity.User;
 import com.ftn.bsep.pki.service.JwtService;
 import com.ftn.bsep.pki.service.PasswordResetService;
@@ -70,8 +72,10 @@ public class AuthController {
     }
 
     User user = userService.getByEmail(request.getEmail());
+
+    boolean mustChangePassword = userService.mustChangePassword(user);
     
-    String token = jwtService.generateToken(request.getEmail(), user.getRole(), user.getId());
+    String token = jwtService.generateToken(request.getEmail(), user.getRole(), mustChangePassword);
     
     SessionInfo sessionInfo = userService.createSession(jwtService.getTokenClaims(token).getId(), request.getEmail(), req);
     sessionManager.addSession(sessionInfo);

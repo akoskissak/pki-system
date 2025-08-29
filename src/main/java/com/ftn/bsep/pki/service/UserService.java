@@ -1,12 +1,8 @@
 package com.ftn.bsep.pki.service;
 
-import com.ftn.bsep.pki.dto.ApiResponse;
-import com.ftn.bsep.pki.dto.AuthResult;
-import com.ftn.bsep.pki.dto.RegisterRequest;
-import com.ftn.bsep.pki.entity.Role;
-import com.ftn.bsep.pki.entity.RoleName;
-import com.ftn.bsep.pki.entity.User;
-import com.ftn.bsep.pki.entity.VerificationToken;
+import com.ftn.bsep.pki.dto.*;
+import com.ftn.bsep.pki.entity.*;
+import com.ftn.bsep.pki.repository.ICAUserDetailsRepository;
 import com.ftn.bsep.pki.repository.IRoleRepository;
 import com.ftn.bsep.pki.repository.IVerificationTokenRepository;
 import com.ftn.bsep.pki.repository.IUserRepository;
@@ -32,6 +28,7 @@ public class UserService {
   private final IRoleRepository roleRepository;
   private final PasswordStrengthService passwordStrengthService;
   private final Logger logger = LoggerFactory.getLogger(UserService.class);
+  private final ICAUserDetailsRepository caUserDetailsRepository;
 
   public ApiResponse register(RegisterRequest request) {
     logger.info("Registracija: pokusaj korisnika sa emailom {}", request.getEmail());
@@ -185,5 +182,87 @@ public class UserService {
       return null;
     }
     return user.get();
+  }
+  
+  public User createCAUser(CreateCAUserRequest request) {
+    if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+      logger.warn("Kreiranje CA korisnika neuspesno: korisnik sa email-om {} već postoji", request.getEmail());
+      throw new RuntimeException("User with that email already exists");
+    }
+    String temporaryPassword = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+    
+    User user = new User();
+    user.setEmail(request.getEmail());
+    user.setFirstName(request.getFirstName());
+    user.setLastName(request.getLastName());
+    
+    Role caRole = roleRepository.findByName(RoleName.CA_USER)
+            .orElseThrow(() -> new RuntimeException("CA_USER role missing"));
+    user.setRole(caRole);
+    user.setPassword(passwordEncoder.encode(temporaryPassword));
+    user.setEnabled(true);
+    
+    userRepository.save(user);
+
+    CAUserDetails caDetails = new CAUserDetails(user);
+    caUserDetailsRepository.save(caDetails);
+    
+    emailService.sendEmail(request.getEmail(), "PKI system - temporary password for CA_USER", "Hello " + request.getFirstName() + ",\n\nYour temporary password is: " + temporaryPassword);
+    logger.info("CA korisnik {} je kreiran sa privremenom lozinkom", user.getEmail());
+
+    return user;
+  }
+  
+  public ApiResponse changePasswordForCAUser(String email, ChangePasswordRequest request) {
+    logger.info("CA Korisnik {} je pokusao izmenu privremene lozinke", email);
+    Optional<User> optionalUser = userRepository.findByEmail(email);
+    if (optionalUser.isEmpty()) {
+      logger.warn("Promena lozinke neuspesna: CA korisnik {} ne postoji", email);
+      return ApiResponse.failure("User does not exist");
+    }
+
+    User user = optionalUser.get();
+
+    if (user.getRole().getName() != RoleName.CA_USER) {
+      logger.warn("Promena lozinke neuspesna: korisnik {} nije CA korisnik", email);
+      return ApiResponse.failure("User is not a CA user");
+    }
+
+    CAUserDetails caUserDetails = caUserDetailsRepository.findByUser(user)
+            .orElseThrow(() -> new RuntimeException("CA details not found"));
+
+    if (!caUserDetails.isFirstLogin()) {
+      logger.info("Korisnik {} ne mora da menja lozinku", email);
+      return ApiResponse.failure("User does not need to change password");
+    }
+    
+    if(!request.getNewPassword().equals(request.getConfirmPassword())) {
+      logger.warn("Korisnik {}: nova lozinka i potvrda se ne poklapaju", email);
+      return ApiResponse.failure("New password and confirmation do not match");
+    }
+    
+    ApiResponse strengthResponse = passwordStrengthService.validatePassword(request.getNewPassword());
+    if(strengthResponse.getError() != null) {
+      logger.warn("Korisnik {}: lozinka nije dovoljno jaka", email);
+      return strengthResponse;
+    }
+    
+    user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+    userRepository.save(user);
+    
+    caUserDetails.setFirstLogin(false);
+    caUserDetailsRepository.save(caUserDetails);
+
+    logger.info("CA korisnik {} je uspesno promenio lozinku", email);
+    return ApiResponse.success("Password changed successfully");
+  }
+
+  public boolean mustChangePassword(User user) {
+    if (user.getRole().getName() == RoleName.CA_USER) {
+      CAUserDetails caDetails = caUserDetailsRepository.findByUser(user)
+              .orElseThrow(() -> new RuntimeException("CA User details not found for user " + user.getId()));
+      return caDetails.isFirstLogin();
+    }
+    return false;
   }
 }
