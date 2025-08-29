@@ -27,6 +27,9 @@ public class PendingCsrRequest {
     @Column(name = "issuer_id")
     private String issuerId;
 
+    @Column(name = "owner_id")
+    private Long ownerId;
+
     @Column(name = "validity_days")
     private Integer validityDays;
 }

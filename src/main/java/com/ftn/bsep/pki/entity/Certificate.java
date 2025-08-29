@@ -64,4 +64,8 @@ public class Certificate {
 
     @Column(nullable = false)
     private String keyStorePassword;
+
+    @ManyToOne
+    @JoinColumn(name = "owner_id")
+    private User owner;
 }
