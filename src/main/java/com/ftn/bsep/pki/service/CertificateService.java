@@ -37,10 +37,17 @@ import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+
+import static com.ftn.bsep.pki.entity.RoleName.CA_USER;
+
 import java.util.*;
 import java.util.stream.Collectors;
 
 import static com.ftn.bsep.pki.entity.CertificateType.INTERMEDIATE;
+
 
 @Service
 public class CertificateService {
@@ -277,6 +284,20 @@ public class CertificateService {
         entity.setKeyStorePassword(encryptedPassword);
         entity.setOwner(issuerOwner);
 
+        if("CA_USER".equals(issuerOwner.getRole().getName().toString())) {
+            if (!req.organization().equals(issuerOwner.getOrganization())) {
+                throw new RuntimeException("CA user cannot issue certificate for another organization");
+            }
+        }
+
+        // --- Ograničenje trajanja sertifikata ---
+        Instant requestedNotAfter = now.plus(req.validityDays(), ChronoUnit.DAYS);
+        if (requestedNotAfter.isAfter(issuerCertEntity.getNotAfter())) {
+            throw new RuntimeException("Cannot issue certificate that expires after the issuer certificate");
+        }
+
+
+
         System.out.println("✅ Intermediate certificate created successfully: " + entity.getSerialNumber());
 
         return certificateRepository.save(entity);
@@ -490,6 +511,19 @@ public class CertificateService {
         }
     }
 
+
+    public List<Certificate> getCertificatesForUser(User user) {
+        String role = String.valueOf(user.getRole().getName());
+
+        if ("ADMIN".equals(role)) {
+            return certificateRepository.findAll();
+        } else if ("CA_USER".equals(role)) {
+            return certificateRepository.findAllByOrganization(user.getOrganization());
+        }
+
+        return new ArrayList<>();
+    }
+
     public void handlePendingCsr(MultipartFile csrFile, String issuerId, Integer validityDays, Long ownerId) throws Exception {
         Certificate caCert = certificateRepository.findBySerialNumber(issuerId);
         if (caCert == null) {
@@ -553,6 +587,7 @@ public class CertificateService {
                     );
                 })
                 .collect(Collectors.toList());
+
     }
 
     public List<PendingCsrResponse> getPendingCsrRequestsForUser(Long userId) {

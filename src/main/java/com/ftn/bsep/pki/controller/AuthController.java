@@ -59,9 +59,9 @@ public class AuthController {
   
   @PostMapping("/login")
   public ResponseEntity<ApiResponse> login(@RequestBody LoginRequest request, HttpServletRequest req) {
-    /*if (!recaptchaService.verify(request.getRecaptcha())) {
+    if (!recaptchaService.verify(request.getRecaptcha())) {
       return ResponseEntity.badRequest().body(ApiResponse.failure("CAPTCHA verification failed"));
-    }*/
+    }
     
     AuthResult authenticated = userService.authenticate(request.getEmail(), request.getPassword());
     if(!authenticated.isSuccess()) {
@@ -71,7 +71,7 @@ public class AuthController {
 
     User user = userService.getByEmail(request.getEmail());
     
-    String token = jwtService.generateToken(request.getEmail(), user.getRole());
+    String token = jwtService.generateToken(request.getEmail(), user.getRole(), user.getId());
     
     SessionInfo sessionInfo = userService.createSession(jwtService.getTokenClaims(token).getId(), request.getEmail(), req);
     sessionManager.addSession(sessionInfo);

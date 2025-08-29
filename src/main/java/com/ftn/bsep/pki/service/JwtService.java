@@ -22,13 +22,14 @@ public class JwtService {
     @Value("${jwt.expiration}")
     private long expiration;
     
-    public String generateToken(String email, Role role) {
+    public String generateToken(String email, Role role, Long userId) {
         String tokenId = UUID.randomUUID().toString();
         
         return Jwts.builder()
                 .setId(tokenId)
                 .setSubject(email)
                 .claim("role", role.getName())
+                .claim("id", userId)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8)), SignatureAlgorithm.HS256)
