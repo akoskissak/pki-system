@@ -6,6 +6,7 @@ import com.ftn.bsep.pki.repository.IUserRepository;
 import com.ftn.bsep.pki.service.CertificateService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -103,5 +104,17 @@ public class CertificateController {
     public ResponseEntity<List<IntermediateResponse>> getCAs() {
         var caList = service.getAllCAs();
         return ResponseEntity.ok(caList);
+    }
+
+    @GetMapping("/pending-requests")
+    @PreAuthorize("hasRole('ROLE_CA_USER') or hasRole('ROLE_ADMIN')")
+    public ResponseEntity<List<PendingCsrResponse>> getPendingRequests(Principal principal) {
+        // Get the logged-in user's ID
+        User loggedInUser = userRepository.findByEmail(principal.getName())
+                .orElseThrow(() -> new UsernameNotFoundException("User not found."));
+
+        List<PendingCsrResponse> pendingRequests = service.getPendingCsrRequestsForUser(loggedInUser.getId());
+
+        return ResponseEntity.ok(pendingRequests);
     }
 }

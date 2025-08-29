@@ -9,4 +9,5 @@ import java.util.List;
 @Repository
 public interface ICertificateRepository extends JpaRepository<Certificate, Long> {
     Certificate findBySerialNumber(String issuerId);
+    List<Certificate> findByOwnerId(Long ownerId);
 }

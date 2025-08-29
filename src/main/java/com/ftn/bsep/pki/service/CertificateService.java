@@ -447,8 +447,11 @@ public class CertificateService {
                 extList
         );
 
+        Long ownerId =  pendingRequest.getOwnerId();
+        //brisanje obradjenog requesta
+        pendingCsrRepository.deleteById(requestId);
         // Pozivanje postojece metode za izdavanje certifikata
-        return this.issueEndEntity(req, pendingRequest.getOwnerId());
+        return this.issueEndEntity(req, ownerId);
     }
 
     // Pomoćna metoda za izvlačenje RDN-ova iz X500Name
@@ -549,6 +552,33 @@ public class CertificateService {
                             (int) validityDays
                     );
                 })
+                .collect(Collectors.toList());
+    }
+
+    public List<PendingCsrResponse> getPendingCsrRequestsForUser(Long userId) {
+        // Step 1: Find all CA certificates owned by the user.
+        List<Certificate> caCertificates = certificateRepository.findByOwnerId(userId)
+                .stream()
+                .filter(cert -> cert.getType() == CertificateType.ROOT || cert.getType() == CertificateType.INTERMEDIATE)
+                .collect(Collectors.toList());
+
+        // Step 2: Get a list of serial numbers from these CA certificates.
+        List<String> issuerSerialNumbers = caCertificates.stream()
+                .map(Certificate::getSerialNumber)
+                .collect(Collectors.toList());
+
+        // Step 3: Find all pending requests that have one of these serial numbers as their issuerId.
+        List<PendingCsrRequest> pendingRequests = pendingCsrRepository.findByIssuerIdIn(issuerSerialNumbers);
+
+        // Step 4: Map the entities to DTOs for the response.
+        return pendingRequests.stream()
+                .map(req -> new PendingCsrResponse(
+                        req.getId(),
+                        req.getCommonName(),
+                        req.getSubmittedAt(),
+                        req.getIssuerId(),
+                        req.getValidityDays()
+                ))
                 .collect(Collectors.toList());
     }
 }
