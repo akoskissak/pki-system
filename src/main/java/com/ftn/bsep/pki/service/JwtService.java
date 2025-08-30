@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -19,18 +20,19 @@ public class JwtService {
     @Value("${jwt.expiration}")
     private long expiration;
     
-    public String generateToken(String email, Role role, boolean mustChangePassword) {
+    public String generateToken(String email, Role role, Long userId, boolean mustChangePassword) {
         String tokenId = UUID.randomUUID().toString();
         
         JwtBuilder builder = Jwts.builder()
                             .setId(tokenId)
                             .setSubject(email)
                             .claim("role", role.getName())
+                            .claim("id", userId)
                             .setIssuedAt(new Date())
                             .setExpiration(new Date(System.currentTimeMillis() + expiration))
                             .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8)), SignatureAlgorithm.HS256);
         if (mustChangePassword) {
-            builder.claim("mustChangePassword", true);
+            builder.claim("mustChangePassword",  Boolean.TRUE); //kad ovdje stoji samo true javlja neku grešku
         }
         
         return builder.compact();
