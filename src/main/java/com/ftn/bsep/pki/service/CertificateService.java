@@ -306,7 +306,6 @@ public class CertificateService {
     public Certificate issueEndEntity(EndEntityRequest req, Long ownerId) throws Exception {
         System.out.println("➡️ Starting issueEndEntity for: " + req.commonName());
 
-        // --- Učitavanje issuer sertifikata (CA) ---
         Certificate issuerCertEntity = certificateRepository.findById(req.issuerId())
                 .orElseThrow(() -> new RuntimeException("Issuer certificate not found"));
 
@@ -314,7 +313,6 @@ public class CertificateService {
             throw new Exception("Issuer certificate is revoked");
         }
 
-        //provjera vazenja CA sertifikata
         Instant now = Instant.now();
         Instant requestedEndDate = now.plus(req.validityDays(), ChronoUnit.DAYS);
         Instant issuerEndDate = issuerCertEntity.getNotAfter();
@@ -328,11 +326,9 @@ public class CertificateService {
         User issuerOwner = userRepository.findById(req.issuerOwnerId())
                 .orElseThrow(() -> new RuntimeException("Issuer owner not found"));
 
-        //trazenje korisnika sertifikata - onog koji je trazio sertifikat
         User owner = userRepository.findById(ownerId)
                 .orElseThrow(() -> new RuntimeException("Owner not found"));
 
-        // ... Ostatak logike za učitavanje keystore-a, issuer certifikata i privatnog ključa
         String plainPassword = encryptionService.decrypt(
                 issuerCertEntity.getKeyStorePassword(),
                 issuerOwner.getSymmetricKey()
@@ -347,12 +343,10 @@ public class CertificateService {
         X509Certificate issuerCert = (X509Certificate) ks.getCertificate(issuerAlias);
         PrivateKey issuerPrivateKey = (PrivateKey) ks.getKey(issuerAlias, plainPassword.toCharArray());
 
-        // --- Kreiranje javnog ključa iz DTO-a ---
         byte[] publicKeyBytes = Base64.getDecoder().decode(req.publicKey());
         KeyFactory kf = KeyFactory.getInstance("RSA");
         PublicKey subjectPublicKey = kf.generatePublic(new X509EncodedKeySpec(publicKeyBytes));
 
-        // --- Kreiranje novog EE sertifikata ---
         X500NameBuilder subjectBuilder = new X500NameBuilder(BCStyle.INSTANCE);
         subjectBuilder.addRDN(BCStyle.CN, req.commonName());
         subjectBuilder.addRDN(BCStyle.SURNAME, req.surname());
@@ -376,11 +370,9 @@ public class CertificateService {
                 subject, issuer, CertificateType.END_ENTITY, req.extensions()
         );
 
-        // --- Cuvanje samo javnog sertifikata ---
         Path certPath = keyStoreService.saveEECertificate(newCert);
         System.out.println("Saved EE certificate to: " + certPath);
 
-        // --- Cuvanje informacija o sertifikatu u bazi ---
         Certificate entity = new Certificate();
         entity.setSerialNumber(newCert.getSerialNumber().toString());
         entity.setSubjectCommonName(req.commonName());
@@ -398,17 +390,15 @@ public class CertificateService {
         entity.setRevoked(false);
         entity.setKeyStorePath(certPath.toString());
         String randomPassword = new BigInteger(130, new SecureRandom()).toString(32);
-        entity.setKeyStorePassword(randomPassword); // Ne cuvamo lozinku jer nema privatnog ključa, stavljamo random vrijednost jer ne smije biti null
+        entity.setKeyStorePassword(randomPassword);
         entity.setOwner(owner);
         return certificateRepository.save(entity);
     }
 
     public Certificate issueFromPendingCsr(Long requestId) throws Exception {
-        // 1. Dohvati PendingCsrRequest iz baze
         PendingCsrRequest pendingRequest = pendingCsrRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Pending CSR request with id " + requestId + " not found."));
 
-        // 2. Parsiraj CSR iz sacuvanog teksta
         PKCS10CertificationRequest csr;
         try (PEMParser pemParser = new PEMParser(new StringReader(pendingRequest.getCsrContent()))) {
             Object parsedObject = pemParser.readObject();
@@ -422,7 +412,6 @@ public class CertificateService {
         PublicKey publicKey = jcaCSR.getPublicKey();
         X500Name subjectName = jcaCSR.getSubject();
 
-        // --- Ekstrakcija podataka ---
         String commonName = getRdnString(subjectName, BCStyle.CN);
         String surname = getRdnString(subjectName, BCStyle.SURNAME);
         String givenname = getRdnString(subjectName, BCStyle.GIVENNAME);
@@ -430,7 +419,6 @@ public class CertificateService {
         String organizationalUnit = getRdnString(subjectName, BCStyle.OU);
         String country = getRdnString(subjectName, BCStyle.C);
 
-        // Validacija digitalnog potpisa u CSR-u (OPCIONALNO, ali dobra praksa)
         if (!jcaCSR.isSignatureValid(new JcaContentVerifierProviderBuilder().setProvider("BC").build(publicKey))) {
             throw new RuntimeException("CSR signature is invalid.");
         }
@@ -453,7 +441,6 @@ public class CertificateService {
             throw new IllegalArgumentException("Issuer CA not found.");
         }
 
-        // --- Kreiranje EndEntityRequest DTO-a iz CSR podataka ---
         EndEntityRequest req = new EndEntityRequest(
                 caCert.getId(),
                 caCert.getOwner().getId(), //DISKUTABILNO!!!
@@ -469,19 +456,16 @@ public class CertificateService {
         );
 
         Long ownerId =  pendingRequest.getOwnerId();
-        //brisanje obradjenog requesta
         pendingCsrRepository.deleteById(requestId);
-        // Pozivanje postojece metode za izdavanje certifikata
         return this.issueEndEntity(req, ownerId);
     }
 
-    // Pomoćna metoda za izvlačenje RDN-ova iz X500Name
     private String getRdnString(X500Name subjectName, ASN1ObjectIdentifier rdnType) {
         RDN[] rdns = subjectName.getRDNs(rdnType);
         if (rdns.length > 0) {
             return IETFUtils.valueToString(rdns[0].getFirst().getValue());
         }
-        return ""; // Vrati prazan string umesto null-a
+        return "";
     }
 
 
@@ -519,6 +503,8 @@ public class CertificateService {
             return certificateRepository.findAll();
         } else if ("CA_USER".equals(role)) {
             return certificateRepository.findAllByOrganization(user.getOrganization());
+        } else if ("END_USER".equals(role)) {
+            return certificateRepository.findByOwnerId(user.getId());
         }
 
         return new ArrayList<>();
@@ -530,16 +516,13 @@ public class CertificateService {
             throw new IllegalArgumentException("Issuer CA not found.");
         }
 
-        // 2. Proverite validnost
         long caRemainingDays = Duration.between(Instant.now(), caCert.getNotAfter()).toDays();
         if (validityDays > caRemainingDays) {
             throw new IllegalArgumentException("Requested validity exceeds the remaining validity of the issuer CA.");
         }
         try {
-            // Čitajte sadržaj fajla kao tekst (PEM format)
             String csrContent = new String(csrFile.getBytes());
 
-            // Parsirajte CSR
             PKCS10CertificationRequest csr;
             try (PEMParser pemParser = new PEMParser(new StringReader(csrContent))) {
                 Object parsedObject = pemParser.readObject();
@@ -554,12 +537,11 @@ public class CertificateService {
             X500Name subjectName = new JcaPKCS10CertificationRequest(csr).getSubject();
             String commonName = getRdnString(subjectName, BCStyle.CN);
 
-            // Kreiranje i čuvanje entiteta u bazi
             PendingCsrRequest pendingRequest = new PendingCsrRequest();
             pendingRequest.setCsrContent(csrContent);
             pendingRequest.setCommonName(commonName);
             pendingRequest.setSubmittedAt(Instant.now());
-            pendingRequest.setIssuerId(issuerId); //TREBALO BI DA JE OK ALI PROVJERITI - znaci serijski broj
+            pendingRequest.setIssuerId(issuerId);
             pendingRequest.setValidityDays(validityDays);
             pendingRequest.setOwnerId(ownerId);
             pendingCsrRepository.save(pendingRequest);
@@ -574,9 +556,8 @@ public class CertificateService {
         List<Certificate> allCertificates = certificateRepository.findAll();
 
         return allCertificates.stream()
-                .filter(cert -> cert.getType().equals(INTERMEDIATE)) // Poziva metodu iz entiteta
+                .filter(cert -> cert.getType().equals(INTERMEDIATE))
                 .map(cert -> {
-                    // Izračunaj trajanje u danima od danas do datuma isteka
                     long validityDays = Duration.between(Instant.now(), cert.getNotAfter()).toDays();
                     return new IntermediateResponse(
                             cert.getSerialNumber(),
@@ -591,21 +572,17 @@ public class CertificateService {
     }
 
     public List<PendingCsrResponse> getPendingCsrRequestsForUser(Long userId) {
-        // Step 1: Find all CA certificates owned by the user.
         List<Certificate> caCertificates = certificateRepository.findByOwnerId(userId)
                 .stream()
                 .filter(cert -> cert.getType() == CertificateType.ROOT || cert.getType() == CertificateType.INTERMEDIATE)
                 .collect(Collectors.toList());
 
-        // Step 2: Get a list of serial numbers from these CA certificates.
         List<String> issuerSerialNumbers = caCertificates.stream()
                 .map(Certificate::getSerialNumber)
                 .collect(Collectors.toList());
 
-        // Step 3: Find all pending requests that have one of these serial numbers as their issuerId.
         List<PendingCsrRequest> pendingRequests = pendingCsrRepository.findByIssuerIdIn(issuerSerialNumbers);
 
-        // Step 4: Map the entities to DTOs for the response.
         return pendingRequests.stream()
                 .map(req -> new PendingCsrResponse(
                         req.getId(),
