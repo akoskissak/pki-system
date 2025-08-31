@@ -1,6 +1,7 @@
 package com.ftn.bsep.pki.controller;
 
 
+import com.ftn.bsep.pki.config.KeyStoreConfig;
 import com.ftn.bsep.pki.dto.CertificateResponse;
 import com.ftn.bsep.pki.dto.IntermediateRequest;
 import com.ftn.bsep.pki.dto.SelfSignedRequest;
@@ -9,6 +10,11 @@ import com.ftn.bsep.pki.entity.User;
 import com.ftn.bsep.pki.repository.IUserRepository;
 import com.ftn.bsep.pki.dto.*;
 import com.ftn.bsep.pki.service.CertificateService;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -17,6 +23,9 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.Principal;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -26,10 +35,15 @@ import java.util.stream.Collectors;
 public class CertificateController {
     private final CertificateService service;
     private final IUserRepository userRepository;
+    private final KeyStoreConfig cfg;
+    private final String certificateStoragePath;
 
-    public CertificateController(CertificateService service, IUserRepository userRepository) {
+    public CertificateController(CertificateService service, IUserRepository userRepository, KeyStoreConfig keyStoreConfig) {
         this.service = service;
         this.userRepository = userRepository;
+        this.cfg = keyStoreConfig;
+        this.certificateStoragePath = Paths.get(cfg.getEeDir()).toString();
+
     }
 
     @PostMapping("/self-signed")
@@ -60,7 +74,7 @@ public class CertificateController {
 
 
     @GetMapping
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_CA_USER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_CA_USER') or hasRole('ROLE_END_USER')")
     public ResponseEntity<List<CertificateResponse>> getCertificates(Authentication auth) {
         String email = auth.getName();
         User user = userRepository.findByEmail(email)
@@ -88,10 +102,8 @@ public class CertificateController {
     public ResponseEntity<CertificateResponse> issueFromPendingCsr(
             @PathVariable("id") Long id
     ) throws Exception {
-        // Pozivanje servisne metode
         var certEntity = service.issueFromPendingCsr(id);
 
-        // Vraća odgovor
         return ResponseEntity.ok(
                 new CertificateResponse(
                         certEntity.getId(),
@@ -114,10 +126,8 @@ public class CertificateController {
             @RequestParam("validityDays") Integer validityDays,
             Principal principal
     ) throws Exception {
-        // Dobijamo email/korisničko ime ulogovanog korisnika
         String email = principal.getName();
 
-        // Na osnovu email-a, pronađite korisnika i njegov ID
         User owner = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("Logged-in user not found."));
         Long ownerId = owner.getId();
@@ -126,7 +136,6 @@ public class CertificateController {
             return ResponseEntity.badRequest().body("CSR file is empty.");
         }
 
-        // Prosleđivanje novih parametara servisu
         service.handlePendingCsr(file, issuerId, validityDays, ownerId);
 
         return ResponseEntity.ok("CSR submitted successfully. Awaiting approval.");
@@ -149,5 +158,28 @@ public class CertificateController {
         List<PendingCsrResponse> pendingRequests = service.getPendingCsrRequestsForUser(loggedInUser.getId());
 
         return ResponseEntity.ok(pendingRequests);
+    }
+
+    @GetMapping("/{serialNumber}/download")
+    @PreAuthorize("hasRole('ROLE_END_USER')")
+    public ResponseEntity<Resource> downloadCertificate(@PathVariable String serialNumber) {
+        try {
+            Path filePath = Paths.get(certificateStoragePath).resolve(serialNumber + ".cer").normalize();
+            Resource resource = new UrlResource(filePath.toUri());
+
+            if (resource.exists() && resource.isReadable()) {
+                String contentType = "application/pkix-cert";
+                String headerValue = "attachment; filename=\"" + resource.getFilename() + "\"";
+
+                return ResponseEntity.ok()
+                        .contentType(MediaType.parseMediaType(contentType))
+                        .header(HttpHeaders.CONTENT_DISPOSITION, headerValue)
+                        .body(resource);
+            } else {
+                return ResponseEntity.notFound().build();
+            }
+        } catch (IOException ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 }
