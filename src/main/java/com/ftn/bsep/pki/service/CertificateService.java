@@ -86,16 +86,19 @@ public class CertificateService {
         subjectBuilder.addRDN(BCStyle.C, req.country());
 
         Instant now = Instant.now();
+        BigInteger serialNumber = new BigInteger(64, new SecureRandom());
+
         Subject subject = new Subject();
         subject.setPublicKey(kp.getPublic());
         subject.setX500Name(subjectBuilder.build());
-        subject.setSerialNumber(new BigInteger(64, new SecureRandom()));
+        subject.setSerialNumber(serialNumber);
         subject.setStartDate(Date.from(now));
         subject.setEndDate(Date.from(now.plus(req.validityDays(), ChronoUnit.DAYS)));
 
         Issuer issuer = new Issuer();
         issuer.setPrivateKey(kp.getPrivate());
         issuer.setX500Name(subjectBuilder.build());
+        issuer.setSerialNumber(serialNumber);
 
         X509Certificate cert = keyStoreService.generateCertificate(subject, issuer, CertificateType.ROOT, req.extensions());
 
@@ -216,16 +219,18 @@ public class CertificateService {
         subjectBuilder.addRDN(BCStyle.OU, req.organizationalUnit());
         subjectBuilder.addRDN(BCStyle.C, req.country());
 
+        BigInteger serialNumber = new BigInteger(64, new SecureRandom());
+
         Subject subject = new Subject();
         subject.setPublicKey(subjectKeyPair.getPublic());
         subject.setX500Name(subjectBuilder.build());
-        subject.setSerialNumber(new BigInteger(64, new SecureRandom()));
+        subject.setSerialNumber(serialNumber);
         subject.setStartDate(Date.from(now));
         subject.setEndDate(Date.from(now.plus(req.validityDays(), ChronoUnit.DAYS)));
 
         Issuer issuer = new Issuer();
         issuer.setPrivateKey(issuerPrivateKey);
-
+        issuer.setSerialNumber(serialNumber);
         X500Principal issuerPrincipal = issuerCert.getSubjectX500Principal();
         issuer.setX500Name(X500Name.getInstance(issuerPrincipal.getEncoded()));
         System.out.println("Issuer X500Name: " + issuer.getX500Name());
@@ -355,15 +360,18 @@ public class CertificateService {
         subjectBuilder.addRDN(BCStyle.OU, req.organizationalUnit());
         subjectBuilder.addRDN(BCStyle.C, req.country());
 
+        BigInteger serialNumber = new BigInteger(64, new SecureRandom());
+
         Subject subject = new Subject();
         subject.setPublicKey(subjectPublicKey);
         subject.setX500Name(subjectBuilder.build());
-        subject.setSerialNumber(new BigInteger(64, new SecureRandom()));
+        subject.setSerialNumber(serialNumber);
         subject.setStartDate(Date.from(now));
         subject.setEndDate(Date.from(now.plus(req.validityDays(), ChronoUnit.DAYS)));
 
         Issuer issuer = new Issuer();
         issuer.setPrivateKey(issuerPrivateKey);
+        issuer.setSerialNumber(serialNumber);
         issuer.setX500Name(X500Name.getInstance(issuerCert.getSubjectX500Principal().getEncoded()));
 
         X509Certificate newCert = keyStoreService.generateCertificate(
@@ -487,6 +495,17 @@ public class CertificateService {
             X509Certificate currentCert = (X509Certificate) chain[i];
             X509Certificate issuerCert = (X509Certificate) chain[i + 1];
 
+            com.ftn.bsep.pki.entity.Certificate issuerEntity = certificateRepository.findBySerialNumber(issuerCert.getSerialNumber().toString());
+            if (issuerEntity != null && issuerEntity.getCrlPath() != null && !issuerEntity.getCrlPath().isEmpty()) {
+                Path crlPath = Path.of(issuerEntity.getCrlPath());
+                RevocationService revocationService = new RevocationService(certificateRepository, encryptionService);// injektuj RevocationService u klasu i koristi ga
+                boolean revoked = revocationService.isRevokedInCrl(currentCert, crlPath);
+                if (revoked) {
+                    throw new Exception("Certificate " + currentCert.getSubjectX500Principal().getName() + " is revoked according to CRL of issuer " + issuerCert.getSubjectX500Principal().getName());
+                }
+            }
+
+            // proveri potpis kao i do sada
             try {
                 currentCert.verify(issuerCert.getPublicKey());
             } catch (Exception e) {
@@ -556,7 +575,7 @@ public class CertificateService {
         List<Certificate> allCertificates = certificateRepository.findAll();
 
         return allCertificates.stream()
-                .filter(cert -> cert.getType().equals(INTERMEDIATE))
+                .filter(cert -> cert.getType().equals(INTERMEDIATE) && !cert.isRevoked())
                 .map(cert -> {
                     long validityDays = Duration.between(Instant.now(), cert.getNotAfter()).toDays();
                     return new IntermediateResponse(

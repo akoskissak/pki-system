@@ -24,6 +24,13 @@ import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.List;
 
+// Dodajte nove import-e za CDP
+import org.bouncycastle.asn1.x509.DistributionPoint;
+import org.bouncycastle.asn1.x509.DistributionPointName;
+import org.bouncycastle.asn1.x509.GeneralName;
+import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.asn1.x509.CRLDistPoint;
+
 @Service
 public class KeyStoreService {
     private final KeyStoreConfig cfg;
@@ -60,7 +67,6 @@ public class KeyStoreService {
             keyUsageFlags |= KeyUsage.cRLSign;
         }
 
-
         if (extensions != null) {
             for (String ext : extensions) {
                 switch (ext) {
@@ -85,6 +91,19 @@ public class KeyStoreService {
         if (keyUsageFlags > 0) {
             certBuilder.addExtension(Extension.keyUsage, true, new KeyUsage(keyUsageFlags));
         }
+
+        // 🆕 DODAVANJE CRL DISTRIBUTION POINT (CDP) EKSTENZIJE
+        // Dinamički kreirajte URL za CRL (npr. koristite serijski broj izdavaoca)
+        String crlUrl = cfg.getCrlBaseUrl() + "/" + issuer.getSerialNumber().toString() + ".crl";
+
+        GeneralName gn = new GeneralName(GeneralName.uniformResourceIdentifier, crlUrl);
+        DistributionPointName distPointName = new DistributionPointName(new GeneralNames(gn));
+        DistributionPoint distPoint = new DistributionPoint(distPointName, null, null);
+        CRLDistPoint crlDistPoint = new CRLDistPoint(new DistributionPoint[] { distPoint });
+
+        // Dodavanje ekstenzije na sertifikat pre potpisivanja
+        certBuilder.addExtension(Extension.cRLDistributionPoints, false, crlDistPoint);
+
 
         return new JcaX509CertificateConverter()
                 .setProvider("BC")
@@ -135,5 +154,4 @@ public class KeyStoreService {
             throw new RuntimeException("Failed to save EE certificate.", e);
         }
     }
-
 }

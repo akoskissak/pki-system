@@ -10,6 +10,7 @@ public record CertificateResponse(
         String path,
         Instant notAfter,
         Long ownerId,
-        String type) {
+        String type,
+        Boolean isRevoked) {
 
 }
