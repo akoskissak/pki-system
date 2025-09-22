@@ -68,9 +68,8 @@ public class CertificateController {
                         certEntity.getNotAfter(),
                         certEntity.getOwner() != null ? certEntity.getOwner().getId() : null,
                         certEntity.getType().name(),
+                        certEntity.isRevoked(),
                         details
-
-
                 )
         );
     }
@@ -93,7 +92,8 @@ public class CertificateController {
                         c.getKeyStorePath(),
                         c.getNotAfter(),
                         c.getOwner() != null ? c.getOwner().getId() : null,
-                        c.getType().name()
+                        c.getType().name(),
+                        c.isRevoked()
                 ))
                 .toList();
 
@@ -125,6 +125,7 @@ public class CertificateController {
                                 c.getNotAfter(),
                                 c.getOwner() != null ? c.getOwner().getId() : null,
                                 c.getType().name(),
+                                c.isRevoked(),
                                 details // <-- Dodajemo detalje
                         );
                     } catch (Exception e) {
@@ -157,6 +158,7 @@ public class CertificateController {
                         certEntity.getNotAfter(),
                         certEntity.getOwner() != null ? certEntity.getOwner().getId() : null,
                         certEntity.getType().name(),
+                        certEntity.isRevoked(),
                         details
                 )
         );
