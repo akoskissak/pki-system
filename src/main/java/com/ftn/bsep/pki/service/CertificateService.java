@@ -149,6 +149,7 @@ public class CertificateService {
                 .orElseThrow(() -> new RuntimeException("Issuer certificate not found"));
         System.out.println("Issuer cert entity: " + issuerCertEntity.getSerialNumber());
 
+
         if (issuerCertEntity.isRevoked()) {
             throw new Exception("Issuer certificate is revoked");
         }
@@ -185,6 +186,16 @@ public class CertificateService {
         if (issuerCert == null) {
             throw new RuntimeException("Issuer certificate not found in keystore.");
         }
+        if (issuerCert.getBasicConstraints() == -1) {
+            throw new Exception("Sertifikat izdavaoca (" + issuerCert.getSubjectX500Principal().getName() + ") nije CA i ne može da izdaje druge sertifikate.");
+        }
+
+        boolean[] keyUsage = issuerCert.getKeyUsage();
+        // Prema X.509 standardu, 'keyCertSign' je na indeksu 5.
+        if (keyUsage != null && !keyUsage[5]) {
+            throw new Exception("Sertifikat izdavaoca nema 'keyCertSign' dozvolu i ne može da potpisuje druge sertifikate.");
+        }
+        System.out.println("✅ Provere CA i KeyUsage dozvola izdavaoca su uspešne.");
         System.out.println("Issuer cert subject: " + issuerCert.getSubjectX500Principal());
         System.out.println("Issuer cert issuer : " + issuerCert.getIssuerX500Principal());
 
@@ -478,7 +489,7 @@ public class CertificateService {
 
 
 
-    private void validateCertificateChain(java.security.cert.Certificate[] chain) throws Exception {
+   /* private void validateCertificateChain(java.security.cert.Certificate[] chain) throws Exception {
         if (chain == null || chain.length == 0) {
             throw new Exception("Certificate chain is empty or null.");
         }
@@ -490,6 +501,7 @@ public class CertificateService {
                 throw new Exception("Certificate in the chain is not valid: " + ((X509Certificate) cert).getSubjectX500Principal().getName() + ". Razlog: " + e.getMessage());
             }
         }
+
 
         for (int i = 0; i < chain.length - 1; ++i) {
             X509Certificate currentCert = (X509Certificate) chain[i];
@@ -512,6 +524,51 @@ public class CertificateService {
                 throw new Exception("Digital signature of the certificate in the chain is invalid: " + currentCert.getSubjectX500Principal().getName() + ". Razlog: " + e.getMessage());
             }
         }
+    }*/
+
+    private void validateCertificateChain(java.security.cert.Certificate[] chain) throws Exception {
+        if (chain == null || chain.length == 0) {
+            throw new Exception("Lanac sertifikata je prazan.");
+        }
+
+        for (int i = 0; i < chain.length; i++) {
+            X509Certificate currentCert = (X509Certificate) chain[i];
+            String serialNumber = currentCert.getSerialNumber().toString();
+            String subjectName = currentCert.getSubjectX500Principal().getName();
+
+            // Provјera 1: Period važenja
+            try {
+                currentCert.checkValidity();
+            } catch (CertificateExpiredException | CertificateNotYetValidException e) {
+                throw new Exception("Sertifikat u lancu nije validan: " + subjectName + ". Razlog: " + e.getMessage());
+            }
+
+            // Provјera 2: Status povučenosti
+            Certificate certEntity = certificateRepository.findBySerialNumber(serialNumber);
+            if (certEntity == null) {
+                throw new Exception("Sertifikat " + subjectName + " nije pronađen u sistemu.");
+            }
+            if (certEntity.isRevoked()) {
+                throw new Exception("Sertifikat u lancu je povučen (revoked): " + subjectName);
+            }
+
+            // Provјera 3: Digitalni potpis
+            if (i < chain.length - 1) {
+                X509Certificate issuerCert = (X509Certificate) chain[i + 1];
+                try {
+                    currentCert.verify(issuerCert.getPublicKey());
+                } catch (Exception e) {
+                    throw new Exception("Digitalni potpis za sertifikat " + subjectName + " nije ispravan.");
+                }
+            } else {
+                try {
+                    currentCert.verify(currentCert.getPublicKey());
+                } catch (Exception e) {
+                    throw new Exception("Root sertifikat " + subjectName + " nije ispravno samopotpisan.");
+                }
+            }
+        }
+        System.out.println("✅ Validacija lanca sertifikata uspešno završena.");
     }
 
 
@@ -611,5 +668,55 @@ public class CertificateService {
                         req.getValidityDays()
                 ))
                 .collect(Collectors.toList());
+    }
+    public CertificateDetails getCertificateDetails(String serialNumber) throws Exception {
+        Certificate certEntity = certificateRepository.findBySerialNumber(serialNumber);
+        if (certEntity == null) {
+            throw new Exception("Sertifikat nije pronađen u sistemu.");
+        }
+        X509Certificate cert;
+
+        // End-entity sertifikati se čuvaju kao .cer, a CA kao .p12
+        if (certEntity.getType() == CertificateType.END_ENTITY) {
+            try (var fis = new java.io.FileInputStream(certEntity.getKeyStorePath())) {
+                java.security.cert.CertificateFactory cf = java.security.cert.CertificateFactory.getInstance("X.509");
+                cert = (X509Certificate) cf.generateCertificate(fis);
+            }
+        } else {
+            String plainPassword = encryptionService.decrypt(
+                    certEntity.getKeyStorePassword(),
+                    certEntity.getOwner().getSymmetricKey()
+            );
+            KeyStore ks = KeyStore.getInstance("PKCS12");
+            try (var fis = new java.io.FileInputStream(certEntity.getKeyStorePath())) {
+                ks.load(fis, plainPassword.toCharArray());
+            }
+            cert = (X509Certificate) ks.getCertificate(serialNumber);
+        }
+
+        if (cert == null) {
+            throw new RuntimeException("Failed to load certificate from file.");
+        }
+
+        // Izvlačimo BasicConstraints
+        boolean isCa = cert.getBasicConstraints() != -1;
+        Integer pathLength = isCa ? cert.getBasicConstraints() : null;
+
+        // Izvlačimo KeyUsage
+        List<String> keyUsageList = new ArrayList<>();
+        boolean[] keyUsage = cert.getKeyUsage();
+        if (keyUsage != null) {
+            if (keyUsage[0]) keyUsageList.add("digitalSignature");
+            if (keyUsage[1]) keyUsageList.add("nonRepudiation");
+            if (keyUsage[2]) keyUsageList.add("keyEncipherment");
+            if (keyUsage[3]) keyUsageList.add("dataEncipherment");
+            if (keyUsage[4]) keyUsageList.add("keyAgreement");
+            if (keyUsage[5]) keyUsageList.add("keyCertSign");
+            if (keyUsage[6]) keyUsageList.add("cRLSign");
+            if (keyUsage[7]) keyUsageList.add("encipherOnly");
+            if (keyUsage[8]) keyUsageList.add("decipherOnly");
+        }
+
+        return new CertificateDetails(isCa, pathLength, keyUsageList);
     }
 }

@@ -11,6 +11,6 @@ public record CertificateResponse(
         Instant notAfter,
         Long ownerId,
         String type,
-        Boolean isRevoked) {
-
+        Boolean isRevoked,
+        CertificateDetails details) {
 }
