@@ -15,4 +15,3 @@ INSERT INTO certificates(serial_number, subject_common_name, subject_surname, su
 INSERT INTO certificates(serial_number, subject_common_name, subject_surname, subject_givenname, subject_organization, subject_organizational_unit, subject_country, issuer_common_name, issuer_organization, not_before, not_after, type, parent_certificate_id, revoked, revoked_at, revocation_reason, crl_path, key_store_path, key_store_password, owner_id) VALUES ('1003', 'CA-Org Web Servers CA', NULL, NULL,'CA-Org', 'Web Infrastructure', 'RS','CA-Org Intermediate CA', 'CA-Org',CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '1 year','INTERMEDIATE', 2,false, NULL, NULL, NULL,'keystores/1003.p12', 'JK9D+znt/rHlgEQ3cNOvMS1zznlEA6P1nfekwCw0EoE=', 3);
 
 INSERT INTO ca_user_details (user_id, first_login) VALUES (3, true);
-

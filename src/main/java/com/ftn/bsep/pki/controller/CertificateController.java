@@ -131,7 +131,7 @@ public class CertificateController {
                     } catch (Exception e) {
                         // U slučaju greške, vraćamo null ili DTO sa praznim detaljima
                         System.err.println("Failed to get details for cert " + c.getSerialNumber() + ": " + e.getMessage());
-                        return new CertificateResponse(c.getId(), c.getSerialNumber(), c.getSubjectCommonName(), c.getIssuerCommonName(), c.getKeyStorePath(), c.getNotAfter(), c.getOwner() != null ? c.getOwner().getId() : null, c.getType().name(), null);
+                        return new CertificateResponse(c.getId(), c.getSerialNumber(), c.getSubjectCommonName(), c.getIssuerCommonName(), c.getKeyStorePath(), c.getNotAfter(), c.getOwner() != null ? c.getOwner().getId() : null, c.getType().name(), null, null);
                     }
                 })
                 .filter(response -> response != null) // Uklanjamo one za koje nismo uspeli da dobijemo detalje
