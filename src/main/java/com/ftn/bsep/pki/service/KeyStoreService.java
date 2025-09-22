@@ -53,11 +53,12 @@ public class KeyStoreService {
 
         int keyUsageFlags = 0;
 
-        // Uvijek dodajemo BasicConstraints za CA sertifikate
         if (type == CertificateType.INTERMEDIATE || type == CertificateType.ROOT) {
             certBuilder.addExtension(Extension.basicConstraints, true, new BasicConstraints(true));
             keyUsageFlags |= KeyUsage.keyCertSign;
             keyUsageFlags |= KeyUsage.cRLSign;
+        } else if (type == CertificateType.END_ENTITY) {
+            certBuilder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
         }
 
 
