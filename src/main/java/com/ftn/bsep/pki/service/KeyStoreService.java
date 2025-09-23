@@ -1,13 +1,11 @@
 package com.ftn.bsep.pki.service;
 
 import com.ftn.bsep.pki.config.KeyStoreConfig;
+import com.ftn.bsep.pki.dto.SanDto;
 import com.ftn.bsep.pki.entity.CertificateType;
 import com.ftn.bsep.pki.entity.Issuer;
 import com.ftn.bsep.pki.entity.Subject;
-import org.bouncycastle.asn1.x509.BasicConstraints;
-import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.KeyUsage;
-import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
+import org.bouncycastle.asn1.x509.*;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
@@ -22,14 +20,11 @@ import java.nio.file.Paths;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.List;
 
 // Dodajte nove import-e za CDP
-import org.bouncycastle.asn1.x509.DistributionPoint;
-import org.bouncycastle.asn1.x509.DistributionPointName;
-import org.bouncycastle.asn1.x509.GeneralName;
-import org.bouncycastle.asn1.x509.GeneralNames;
-import org.bouncycastle.asn1.x509.CRLDistPoint;
+
 
 @Service
 public class KeyStoreService {
@@ -39,7 +34,7 @@ public class KeyStoreService {
         this.cfg = cfg;
     }
 
-    public X509Certificate generateCertificate(
+    public X509Certificate generateEECertificate(
             Subject subject,
             Issuer issuer,
             CertificateType type,
@@ -154,5 +149,100 @@ public class KeyStoreService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to save EE certificate.", e);
         }
+    }
+    public X509Certificate generateCertificate(
+            Subject subject,
+            Issuer issuer,
+            CertificateType type,
+            List<String> extensions,
+            List<SanDto> subjectAlternativeNames
+    ) throws Exception {
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+                .setProvider("BC")
+                .build(issuer.getPrivateKey());
+
+        X509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
+                issuer.getX500Name(),
+                subject.getSerialNumber(),
+                subject.getStartDate(),
+                subject.getEndDate(),
+                subject.getX500Name(),
+                SubjectPublicKeyInfo.getInstance(subject.getPublicKey().getEncoded())
+        );
+
+        // --- OBRADA EKSTENZIJA ---
+
+        // 1. Basic Constraints
+        if (type == CertificateType.INTERMEDIATE || type == CertificateType.ROOT) {
+            certBuilder.addExtension(Extension.basicConstraints, true, new BasicConstraints(true));
+        } else if (type == CertificateType.END_ENTITY) {
+            certBuilder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
+        }
+
+        // 2. Key Usage & Extended Key Usage
+        int keyUsageFlags = 0;
+        List<KeyPurposeId> ekuList = new ArrayList<>();
+
+        // Obavezne ekstenzije za CA
+        if (type == CertificateType.INTERMEDIATE || type == CertificateType.ROOT) {
+            keyUsageFlags |= KeyUsage.keyCertSign;
+            keyUsageFlags |= KeyUsage.cRLSign;
+        }
+
+        if (extensions != null) {
+            for (String ext : extensions) {
+                switch (ext) {
+                    // Key Usage
+                    case "digitalSignature": keyUsageFlags |= KeyUsage.digitalSignature; break;
+                    case "nonRepudiation": keyUsageFlags |= KeyUsage.nonRepudiation; break;
+                    case "keyEncipherment": keyUsageFlags |= KeyUsage.keyEncipherment; break;
+                    case "dataEncipherment": keyUsageFlags |= KeyUsage.dataEncipherment; break;
+                    // Extended Key Usage
+                    case "serverAuth": ekuList.add(KeyPurposeId.id_kp_serverAuth); break;
+                    case "clientAuth": ekuList.add(KeyPurposeId.id_kp_clientAuth); break;
+                    case "codeSigning": ekuList.add(KeyPurposeId.id_kp_codeSigning); break;
+                    case "emailProtection": ekuList.add(KeyPurposeId.id_kp_emailProtection); break;
+                }
+            }
+        }
+
+        if (keyUsageFlags > 0) {
+            certBuilder.addExtension(Extension.keyUsage, true, new KeyUsage(keyUsageFlags));
+        }
+        if (!ekuList.isEmpty()) {
+            certBuilder.addExtension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(ekuList.toArray(new KeyPurposeId[0])));
+        }
+
+        // 3. Subject Alternative Name (SAN)
+        if (subjectAlternativeNames != null && !subjectAlternativeNames.isEmpty()) {
+            List<GeneralName> generalNames = new ArrayList<>();
+            for (SanDto san : subjectAlternativeNames) {
+                int tagNo;
+                switch (san.getType().toUpperCase()) {
+                    case "DNS": tagNo = GeneralName.dNSName; break;
+                    case "IP": tagNo = GeneralName.iPAddress; break;
+                    case "EMAIL": tagNo = GeneralName.rfc822Name; break;
+                    case "URI": tagNo = GeneralName.uniformResourceIdentifier; break;
+                    default: continue; // Preskoči nepoznate tipove
+                }
+                generalNames.add(new GeneralName(tagNo, san.getValue()));
+            }
+            if (!generalNames.isEmpty()) {
+                certBuilder.addExtension(Extension.subjectAlternativeName, false, new GeneralNames(generalNames.toArray(new GeneralName[0])));
+            }
+        }
+
+        // 4. CRL Distribution Point (CDP)
+        String crlUrl = cfg.getCrlBaseUrl() + "/" + issuer.getSerialNumber().toString() + ".crl";
+        GeneralName gn = new GeneralName(GeneralName.uniformResourceIdentifier, crlUrl);
+        DistributionPointName distPointName = new DistributionPointName(new GeneralNames(gn));
+        DistributionPoint distPoint = new DistributionPoint(distPointName, null, null);
+        CRLDistPoint crlDistPoint = new CRLDistPoint(new DistributionPoint[] { distPoint });
+        certBuilder.addExtension(Extension.cRLDistributionPoints, false, crlDistPoint);
+
+        // Potpisivanje i generisanje sertifikata
+        return new JcaX509CertificateConverter()
+                .setProvider("BC")
+                .getCertificate(certBuilder.build(signer));
     }
 }
