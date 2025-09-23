@@ -1,6 +1,7 @@
 package com.ftn.bsep.pki.controller;
 
 import com.ftn.bsep.pki.dto.PasswordDto;
+import com.ftn.bsep.pki.dto.SharePasswordDto;
 import com.ftn.bsep.pki.entity.Password;
 import com.ftn.bsep.pki.entity.User;
 import com.ftn.bsep.pki.repository.IUserRepository;
@@ -49,5 +50,19 @@ public class PasswordController {
 
         List<Password> passwords = passwordService.getPasswordsForUser(user.getId());
         return ResponseEntity.ok(passwords);
+    }
+
+    @PostMapping("/{passwordId}/share")
+    @PreAuthorize("hasAuthority('END_USER')")
+    public ResponseEntity<Void> sharePassword(
+            @PathVariable Long passwordId,
+            @RequestBody SharePasswordDto shareDto,
+            Principal principal) {
+
+        User owner = getLoggedInUser(principal).orElseThrow(() -> new RuntimeException("User not found"));
+
+        passwordService.sharePassword(passwordId, owner.getId(), shareDto.getTargetUserId(), shareDto.getEncryptedPasswordForTargetUser());
+
+        return ResponseEntity.ok().build();
     }
 }
