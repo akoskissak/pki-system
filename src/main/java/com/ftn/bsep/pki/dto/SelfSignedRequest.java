@@ -11,5 +11,6 @@ public record SelfSignedRequest(
         String country,
         Long ownerId,
         int validityDays,
-        List<String> extensions
+        List<String> extensions,
+        List<SanDto> subjectAlternativeNames
 ) {}

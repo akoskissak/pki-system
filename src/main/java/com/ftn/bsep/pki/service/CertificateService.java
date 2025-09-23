@@ -32,6 +32,7 @@ import java.nio.file.Path;
 import java.security.*;
 import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateNotYetValidException;
+import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
@@ -100,7 +101,7 @@ public class CertificateService {
         issuer.setX500Name(subjectBuilder.build());
         issuer.setSerialNumber(serialNumber);
 
-        X509Certificate cert = keyStoreService.generateCertificate(subject, issuer, CertificateType.ROOT, req.extensions());
+        X509Certificate cert = keyStoreService.generateCertificate(subject, issuer, CertificateType.ROOT, req.extensions(), req.subjectAlternativeNames());
 
         X509Certificate[] chain = { cert };
 
@@ -247,7 +248,7 @@ public class CertificateService {
         System.out.println("Issuer X500Name: " + issuer.getX500Name());
 
         X509Certificate newCert = keyStoreService.generateCertificate(
-                subject, issuer, INTERMEDIATE, req.extensions()
+                subject, issuer, INTERMEDIATE, req.extensions(), req.subjectAlternativeNames()
         );
         System.out.println("Generated new intermediate cert");
         System.out.println("New cert subject: " + newCert.getSubjectX500Principal());
@@ -385,7 +386,7 @@ public class CertificateService {
         issuer.setSerialNumber(serialNumber);
         issuer.setX500Name(X500Name.getInstance(issuerCert.getSubjectX500Principal().getEncoded()));
 
-        X509Certificate newCert = keyStoreService.generateCertificate(
+        X509Certificate newCert = keyStoreService.generateEECertificate(
                 subject, issuer, CertificateType.END_ENTITY, req.extensions()
         );
 
@@ -669,7 +670,7 @@ public class CertificateService {
                 ))
                 .collect(Collectors.toList());
     }
-    public CertificateDetails getCertificateDetails(String serialNumber) throws Exception {
+    /*public CertificateDetails getCertificateDetails(String serialNumber) throws Exception {
         Certificate certEntity = certificateRepository.findBySerialNumber(serialNumber);
         if (certEntity == null) {
             throw new Exception("Sertifikat nije pronađen u sistemu.");
@@ -718,5 +719,97 @@ public class CertificateService {
         }
 
         return new CertificateDetails(isCa, pathLength, keyUsageList);
+    }*/
+
+    // Cijela metoda sa svim pomoćnim metodama
+
+    public CertificateDetails getCertificateDetails(String serialNumber) throws Exception {
+        Certificate certEntity = certificateRepository.findBySerialNumber(serialNumber);
+        if (certEntity == null) {
+            throw new Exception("Sertifikat nije pronađen u sistemu.");
+        }
+        X509Certificate cert;
+
+        // End-entity sertifikati se čuvaju kao .cer, a CA kao .p12
+        if (certEntity.getType() == CertificateType.END_ENTITY) {
+            try (var fis = new java.io.FileInputStream(certEntity.getKeyStorePath())) {
+                java.security.cert.CertificateFactory cf = java.security.cert.CertificateFactory.getInstance("X.509");
+                cert = (X509Certificate) cf.generateCertificate(fis);
+            }
+        } else {
+            String plainPassword = encryptionService.decrypt(
+                    certEntity.getKeyStorePassword(),
+                    certEntity.getOwner().getSymmetricKey()
+            );
+            KeyStore ks = KeyStore.getInstance("PKCS12");
+            try (var fis = new java.io.FileInputStream(certEntity.getKeyStorePath())) {
+                ks.load(fis, plainPassword.toCharArray());
+            }
+            cert = (X509Certificate) ks.getCertificate(serialNumber);
+        }
+
+        if (cert == null) {
+            throw new RuntimeException("Failed to load certificate from file.");
+        }
+
+        // Izvlačimo BasicConstraints
+        boolean isCa = cert.getBasicConstraints() != -1;
+        Integer pathLength = isCa ? cert.getBasicConstraints() : null;
+
+        // Izvlačimo KeyUsage
+        List<String> keyUsageList = parseKeyUsage(cert.getKeyUsage());
+
+        // Izvlačimo Extended Key Usage
+        List<String> extendedKeyUsageList = cert.getExtendedKeyUsage();
+        if (extendedKeyUsageList == null) {
+            extendedKeyUsageList = new ArrayList<>();
+        }
+
+        // Izvlačimo Subject Alternative Names (SANs)
+        Map<String, List<String>> sanMap = new HashMap<>();
+        try {
+            Collection<List<?>> sans = cert.getSubjectAlternativeNames();
+            if (sans != null) {
+                for (List<?> san : sans) {
+                    Integer tag = (Integer) san.get(0);
+                    Object value = san.get(1);
+                    String valueString = (value instanceof byte[]) ? Arrays.toString((byte[]) value) : value.toString();
+
+                    String type = convertSanTagToString(tag);
+                    sanMap.computeIfAbsent(type, k -> new ArrayList<>()).add(valueString);
+                }
+            }
+        } catch (CertificateParsingException e) {
+            System.err.println("Greška pri parsiranju SANs: " + e.getMessage());
+        }
+
+        return new CertificateDetails(isCa, pathLength, keyUsageList, extendedKeyUsageList, sanMap);
+    }
+
+    // Pomoćna metoda za konverziju Key Usage bitova u čitljive stringove
+    private List<String> parseKeyUsage(boolean[] keyUsageBits) {
+        List<String> usages = new ArrayList<>();
+        if (keyUsageBits == null) return usages;
+        if (keyUsageBits[0]) usages.add("digitalSignature");
+        if (keyUsageBits[1]) usages.add("nonRepudiation");
+        if (keyUsageBits[2]) usages.add("keyEncipherment");
+        if (keyUsageBits[3]) usages.add("dataEncipherment");
+        if (keyUsageBits[4]) usages.add("keyAgreement");
+        if (keyUsageBits[5]) usages.add("keyCertSign");
+        if (keyUsageBits[6]) usages.add("cRLSign");
+        if (keyUsageBits[7]) usages.add("encipherOnly");
+        if (keyUsageBits[8]) usages.add("decipherOnly");
+        return usages;
+    }
+
+    // Pomoćna metoda za konverziju SAN tagova u čitljive stringove
+    private String convertSanTagToString(int tag) {
+        switch (tag) {
+            case 2: return "DNS Name";
+            case 1: return "Email";
+            case 6: return "URI";
+            case 7: return "IP Address";
+            default: return "Unknown";
+        }
     }
 }
