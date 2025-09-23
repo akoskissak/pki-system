@@ -68,9 +68,8 @@ public class CertificateController {
                         certEntity.getNotAfter(),
                         certEntity.getOwner() != null ? certEntity.getOwner().getId() : null,
                         certEntity.getType().name(),
+                        certEntity.isRevoked(),
                         details
-
-
                 )
         );
     }
@@ -93,7 +92,8 @@ public class CertificateController {
                         c.getKeyStorePath(),
                         c.getNotAfter(),
                         c.getOwner() != null ? c.getOwner().getId() : null,
-                        c.getType().name()
+                        c.getType().name(),
+                        c.isRevoked()
                 ))
                 .toList();
 
@@ -125,12 +125,13 @@ public class CertificateController {
                                 c.getNotAfter(),
                                 c.getOwner() != null ? c.getOwner().getId() : null,
                                 c.getType().name(),
+                                c.isRevoked(),
                                 details // <-- Dodajemo detalje
                         );
                     } catch (Exception e) {
                         // U slučaju greške, vraćamo null ili DTO sa praznim detaljima
                         System.err.println("Failed to get details for cert " + c.getSerialNumber() + ": " + e.getMessage());
-                        return new CertificateResponse(c.getId(), c.getSerialNumber(), c.getSubjectCommonName(), c.getIssuerCommonName(), c.getKeyStorePath(), c.getNotAfter(), c.getOwner() != null ? c.getOwner().getId() : null, c.getType().name(), null);
+                        return new CertificateResponse(c.getId(), c.getSerialNumber(), c.getSubjectCommonName(), c.getIssuerCommonName(), c.getKeyStorePath(), c.getNotAfter(), c.getOwner() != null ? c.getOwner().getId() : null, c.getType().name(), null, null);
                     }
                 })
                 .filter(response -> response != null) // Uklanjamo one za koje nismo uspeli da dobijemo detalje
@@ -157,6 +158,7 @@ public class CertificateController {
                         certEntity.getNotAfter(),
                         certEntity.getOwner() != null ? certEntity.getOwner().getId() : null,
                         certEntity.getType().name(),
+                        certEntity.isRevoked(),
                         details
                 )
         );

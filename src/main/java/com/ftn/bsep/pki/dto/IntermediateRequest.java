@@ -10,5 +10,6 @@ public record IntermediateRequest(
         String organizationalUnit,
         String country,
         int validityDays,
-        List<String> extensions
+        List<String> extensions,
+        List<SanDto> subjectAlternativeNames
 ) {}

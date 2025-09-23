@@ -57,7 +57,16 @@ public class Certificate {
     private Certificate parentCertificate;
 
     @Column(nullable = false)
-    private boolean isRevoked;
+    private boolean revoked;
+
+    @Column
+    private Instant revokedAt;   // vreme povlačenja
+
+    @Column
+    private Integer revocationReason;   // X.509 CRLReason code
+
+    @Column
+    private String crlPath;   // putanja do CRL fajla ako je CA
 
     @Column(nullable = false)
     private String keyStorePath;
