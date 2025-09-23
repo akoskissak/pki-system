@@ -74,6 +74,9 @@ public class Certificate {
     @Column(nullable = false)
     private String keyStorePassword;
 
+    @Column(nullable = false)
+    private boolean isEncryptionCertificate;
+
     @ManyToOne
     @JoinColumn(name = "owner_id")
     private User owner;
