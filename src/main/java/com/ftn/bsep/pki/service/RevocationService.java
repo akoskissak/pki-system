@@ -32,7 +32,7 @@ public class RevocationService {
     private final ICertificateRepository certificateRepository;
     private final EncryptionService encryptionService;
 
-    private final Path crlFolder = Path.of("crl"); 
+    private final Path crlFolder = Path.of("crl");
 
     public RevocationService(ICertificateRepository certificateRepository, EncryptionService encryptionService) {
         this.certificateRepository = certificateRepository;
