@@ -28,8 +28,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
 
 import javax.security.auth.x500.X500Principal;
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.StringReader;
 import java.math.BigInteger;
 import java.nio.file.Path;
@@ -45,8 +45,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-
-import static com.ftn.bsep.pki.entity.RoleName.CA_USER;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -123,8 +121,18 @@ public class CertificateService {
 
         String encryptedPassword = encryptionService.encrypt(keyStorePassword, owner.getSymmetricKey());
 
-        Certificate certificateEntity = new Certificate();
+        boolean isEncryptionCertificate = false;
+        if (req.extensions() != null) {
+            for (String ext : req.extensions()) {
+                if(ext.equals("keyEncipherment")) {
+                    isEncryptionCertificate = true;
+                    break;
+                }
+            }
+        }
 
+        Certificate certificateEntity = new Certificate();
+        certificateEntity.setEncryptionCertificate(isEncryptionCertificate);
         certificateEntity.setSerialNumber(cert.getSerialNumber().toString());
         certificateEntity.setSubjectCommonName(req.commonName());
         certificateEntity.setSubjectSurname(req.surname());
@@ -413,7 +421,7 @@ public class CertificateService {
         return certificateRepository.save(entity);
     }
 
-    public Certificate issueEndEntity(EndEntityRequest req, Long ownerId) throws Exception {
+    public Certificate issueEndEntity(EndEntityRequest req, Long ownerId, boolean isEncryptionCertificate) throws Exception {
         System.out.println("➡️ Starting issueEndEntity for: " + req.commonName());
 
         Certificate issuerCertEntity = certificateRepository.findById(req.issuerId())
@@ -487,6 +495,7 @@ public class CertificateService {
         System.out.println("Saved EE certificate to: " + certPath);
 
         Certificate entity = new Certificate();
+        entity.setEncryptionCertificate(isEncryptionCertificate);
         entity.setSerialNumber(newCert.getSerialNumber().toString());
         entity.setSubjectCommonName(req.commonName());
         entity.setSubjectSurname(req.surname());
@@ -537,6 +546,7 @@ public class CertificateService {
         }
 
         Extensions extensions = csr.getRequestedExtensions();
+        boolean isEncryptionCertificate = false;
         List<String> extList = new ArrayList<>();
         if (extensions != null) {
             Extension keyUsageExt = extensions.getExtension(Extension.keyUsage);
@@ -544,7 +554,10 @@ public class CertificateService {
                 KeyUsage ku = KeyUsage.getInstance(keyUsageExt.getParsedValue());
                 if (ku.hasUsages(KeyUsage.digitalSignature)) extList.add("digitalSignature");
                 if (ku.hasUsages(KeyUsage.nonRepudiation)) extList.add("nonRepudiation");
-                if (ku.hasUsages(KeyUsage.keyEncipherment)) extList.add("keyEncipherment");
+                if (ku.hasUsages(KeyUsage.keyEncipherment)) {
+                    extList.add("keyEncipherment");
+                    isEncryptionCertificate = true;
+                }
                 if (ku.hasUsages(KeyUsage.dataEncipherment)) extList.add("dataEncipherment");
             }
         }
@@ -570,7 +583,7 @@ public class CertificateService {
 
         Long ownerId =  pendingRequest.getOwnerId();
         pendingCsrRepository.deleteById(requestId);
-        return this.issueEndEntity(req, ownerId);
+        return this.issueEndEntity(req, ownerId, isEncryptionCertificate);
     }
 
     private String getRdnString(X500Name subjectName, ASN1ObjectIdentifier rdnType) {
@@ -827,6 +840,7 @@ public class CertificateService {
         }
     }
 
+
     private Set<String> getPermittedExtensions(Certificate issuerEntity) throws Exception {
         // Učitavamo X509 sertifikat issuera
         String plainPassword = encryptionService.decrypt(
@@ -861,5 +875,42 @@ public class CertificateService {
             }
         }
         return permittedExtensions;
+    }
+
+    public String getPublicKeyAsPemForUser(User user) {
+        try {
+            Certificate certEntity = certificateRepository.findByOwnerId(user.getId())
+                    .stream()
+                    .filter(Certificate::isEncryptionCertificate)
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException(
+                            "Nema sertifikata za enkripciju za korisnika: " + user.getFirstName() + " " + user.getLastName()
+                    ));
+
+            // Učitajte sertifikat direktno iz .cer fajla.
+            java.security.cert.CertificateFactory cf = java.security.cert.CertificateFactory.getInstance("X.509");
+            java.security.cert.X509Certificate cert;
+            try (FileInputStream fis = new FileInputStream(certEntity.getKeyStorePath())) {
+                cert = (X509Certificate) cf.generateCertificate(fis);
+            }
+
+            // Izvuci javni ključ i konvertuj u PEM format
+            PublicKey publicKey = cert.getPublicKey();
+            String encoded = Base64.getEncoder().encodeToString(publicKey.getEncoded());
+
+            StringBuilder pem = new StringBuilder();
+            pem.append("-----BEGIN PUBLIC KEY-----\n");
+            int index = 0;
+            while (index < encoded.length()) {
+                pem.append(encoded, index, Math.min(index + 64, encoded.length())).append("\n");
+                index += 64;
+            }
+            pem.append("-----END PUBLIC KEY-----\n");
+
+            return pem.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("Greška pri izvlačenju public key-a za korisnika: " + user.getFirstName() + " " + user.getLastName(), e);
+        }
+
     }
 }
