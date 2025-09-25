@@ -6,6 +6,7 @@ INSERT INTO users (email, password, first_name, last_name, organization, enabled
 INSERT INTO users (email, password, first_name, last_name, organization, enabled, role_id) VALUES ('kiss.akos02@gmail.com', '$2a$12$1dAGhd4gVXjcLACrRHPJzOSwqVAcpIhgwDPxVUKU3eSTx7HcGXz9y', 'Akos', 'Kiss', 'AkorORG', true, 3);
 INSERT INTO users (email, password, first_name, last_name, organization, enabled, role_id) VALUES ('causer@pki-system.com', '$2a$10$BDOnxr1mEDc9VMDAqq9tSOcWzeCFbFmW5eZC8wEyPoJ.SuU83.Mlq', 'CA', 'User', 'CA-Org', true, 2);
 INSERT INTO users (email, password, first_name, last_name, organization, enabled, role_id) VALUES ('eeuser@pki-system.com', '$2a$10$BDOnxr1mEDc9VMDAqq9tSOcWzeCFbFmW5eZC8wEyPoJ.SuU83.Mlq', 'Jana', 'Jankovic', 'FTN', true, 3);
+INSERT INTO users (email, password, first_name, last_name, organization, enabled, role_id) VALUES ('eeuser2@pki-system.com', '$2a$10$BDOnxr1mEDc9VMDAqq9tSOcWzeCFbFmW5eZC8wEyPoJ.SuU83.Mlq', 'Maja', 'Jankovic', 'FTN', true, 3);
 
 UPDATE users SET symmetric_key = 'KcfRHpE5wrRgWk7gRvLSK9ZKk1FXnJkigHD32ZUqT2o=' WHERE email = 'causer@pki-system.com';
 UPDATE users SET symmetric_key = 'KcfRHpE5wrRgWk7gRvLSK9ZKk1FXnJkigHD32ZUqT2o=' WHERE email = 'admin@pki-system.com';

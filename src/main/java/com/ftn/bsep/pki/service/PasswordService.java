@@ -8,7 +8,9 @@ import com.ftn.bsep.pki.repository.IUserRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class PasswordService {
@@ -30,6 +32,8 @@ public class PasswordService {
         PasswordShare ownerShare = new PasswordShare();
         ownerShare.setUserId(owner.getId());
         ownerShare.setEncryptedPassword(encryptedPassword);
+        ownerShare.setSharedByUserId(owner.getId());
+        ownerShare.setSharedAt(Instant.now());
         password.getShares().add(ownerShare);
 
         return passwordRepository.save(password);
@@ -37,6 +41,11 @@ public class PasswordService {
 
     @Transactional
     public List<Password> getPasswordsForUser(Long userId) {
+        return passwordRepository.findBySharedByUserId(userId);
+    }
+
+    @Transactional
+    public List<Password> getPasswordsSharedWithUser(Long userId) {
         return passwordRepository.findBySharedUserId(userId);
     }
 
@@ -63,9 +72,18 @@ public class PasswordService {
         PasswordShare newShare = new PasswordShare();
         newShare.setUserId(targetUserId);
         newShare.setEncryptedPassword(encryptedPasswordForTargetUser);
-
+        newShare.setSharedByUserId(ownerId);
+        newShare.setSharedAt(Instant.now());
         password.getShares().add(newShare);
         passwordRepository.save(password);
+    }
+
+    public void deletePassword(Long passwordId) {
+        passwordRepository.deleteById(passwordId);
+    }
+
+    public Optional<Password> getPasswordById(Long passwordId) {
+        return passwordRepository.findById(passwordId);
     }
 }
 

@@ -1,6 +1,7 @@
 package com.ftn.bsep.pki.controller;
 
 import com.ftn.bsep.pki.dto.UserPublicKeyDto;
+import com.ftn.bsep.pki.entity.RoleName;
 import com.ftn.bsep.pki.entity.User;
 import com.ftn.bsep.pki.repository.IUserRepository;
 import com.ftn.bsep.pki.service.CertificateService;
@@ -12,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/users")
@@ -32,8 +35,29 @@ public class UserController {
                 .orElseThrow(() -> new UsernameNotFoundException("User not found."));
         String publicKeyPem = certificateService.getPublicKeyAsPemForUser(user);
 
-        UserPublicKeyDto responseDto = new UserPublicKeyDto(user.getId(), publicKeyPem);
+        UserPublicKeyDto responseDto = new UserPublicKeyDto(user.getId(), publicKeyPem, principal.getName());
         return ResponseEntity.ok(responseDto);
+    }
+
+    @GetMapping("/all-public-keys")
+    @PreAuthorize("hasAuthority('END_USER')")
+    public ResponseEntity<List<UserPublicKeyDto>> getAllPublicKeys() {
+        List<User> endUsers = userRepository.findAll()
+                .stream()
+                .filter(u -> u.getRole().getName().equals(RoleName.END_USER))
+                .toList();
+
+        List<UserPublicKeyDto> result = new ArrayList<>();
+
+        for (User user : endUsers) {
+            try {
+                String publicKeyPem = certificateService.getPublicKeyAsPemForUser(user);
+                result.add(new UserPublicKeyDto(user.getId(), publicKeyPem, user.getEmail()));
+            } catch (RuntimeException ex) {
+            }
+        }
+
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/me")

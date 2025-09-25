@@ -5,7 +5,6 @@ public class PasswordDto {
     private String siteName;
     private String username;
     private String encryptedPassword;
-
     public String getSiteName() {
         return siteName;
     }
