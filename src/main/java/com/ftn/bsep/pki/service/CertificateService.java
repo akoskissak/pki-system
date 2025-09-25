@@ -4,6 +4,7 @@ import com.ftn.bsep.pki.dto.*;
 import com.ftn.bsep.pki.entity.*;
 import com.ftn.bsep.pki.entity.Certificate;
 import com.ftn.bsep.pki.repository.ICertificateRepository;
+import com.ftn.bsep.pki.repository.ICertificateTemplateRepository;
 import com.ftn.bsep.pki.repository.IPendingCsrRepository;
 import com.ftn.bsep.pki.repository.IUserRepository;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -22,6 +23,9 @@ import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Map;
 
 import javax.security.auth.x500.X500Principal;
 import java.io.IOException;
@@ -57,13 +61,15 @@ public class CertificateService {
     private final EncryptionService encryptionService;
     private final ICertificateRepository certificateRepository;
     private final IPendingCsrRepository pendingCsrRepository;
+    private final ICertificateTemplateRepository templateRepository;
 
-    public CertificateService(KeyStoreService keyStoreService, ICertificateRepository certificateRepository, IUserRepository userRepository, EncryptionService encryptionService, IPendingCsrRepository pendingCsrRepository) {
+    public CertificateService(KeyStoreService keyStoreService, ICertificateRepository certificateRepository, IUserRepository userRepository, EncryptionService encryptionService, IPendingCsrRepository pendingCsrRepository, ICertificateTemplateRepository templateRepository) {
         this.keyStoreService = keyStoreService;
         this.userRepository = userRepository;
         this.encryptionService = encryptionService;
         this.certificateRepository = certificateRepository;
         this.pendingCsrRepository = pendingCsrRepository;
+        this.templateRepository = templateRepository;
     }
 
     public SelfSignedResponse createSelfSigned(SelfSignedRequest req) throws Exception {
@@ -150,6 +156,30 @@ public class CertificateService {
                 .orElseThrow(() -> new RuntimeException("Issuer certificate not found"));
         System.out.println("Issuer cert entity: " + issuerCertEntity.getSerialNumber());
 
+        try {
+            Set<String> permittedExtensions = getPermittedExtensions(issuerCertEntity);
+            List<String> requestedExtensions = req.extensions() != null ? req.extensions() : new ArrayList<>();
+
+            // Ako se koristi šablon, njegove ekstenzije se spajaju sa onima iz zahtjeva
+            if (req.templateId() != null) {
+                CertificateTemplate template = templateRepository.findById(req.templateId()).orElseThrow();
+                Set<String> finalExtensions = new HashSet<>(requestedExtensions);
+                if(template.getKeyUsage() != null) finalExtensions.addAll(Arrays.asList(template.getKeyUsage().split(",")));
+                if(template.getExtendedKeyUsage() != null) finalExtensions.addAll(Arrays.asList(template.getExtendedKeyUsage().split(",")));
+                requestedExtensions = new ArrayList<>(finalExtensions);
+            }
+
+            // Provjera da li su sve tražene ekstenzije dozvoljene
+            if (!permittedExtensions.containsAll(requestedExtensions)) {
+                List<String> forbidden = new ArrayList<>(requestedExtensions);
+                forbidden.removeAll(permittedExtensions);
+                throw new SecurityException("Request contains extensions not permitted by the issuer. Forbidden extensions: " + forbidden);
+            }
+            System.out.println("✅ Extension policy validation successful.");
+        } catch (Exception e) {
+            System.out.println("❌ Extension policy validation FAILED: " + e.getMessage());
+            throw e;
+        }
 
         if (issuerCertEntity.isRevoked()) {
             throw new Exception("Issuer certificate is revoked");
@@ -218,6 +248,69 @@ public class CertificateService {
 
         PrivateKey issuerPrivateKey = (PrivateKey) ks.getKey(issuerAlias, plainPassword.toCharArray());
         System.out.println("Loaded issuer private key: " + (issuerPrivateKey != null));
+        CertificateTemplate template = null;
+        if (req.templateId() != null) {
+            template = templateRepository.findById(req.templateId())
+                    .orElseThrow(() -> new RuntimeException("Template not found"));
+
+            // 1️⃣ Validacija CN
+            if (!req.commonName().matches(template.getCnRegex())) {
+                throw new RuntimeException("Common Name does not match template regex: " + template.getCnRegex());
+            }
+
+            // 2️⃣ Validacija SAN
+            if (req.subjectAlternativeNames() != null && template.getSanRegex() != null && !template.getSanRegex().isEmpty()) {
+                ObjectMapper objectMapper = new ObjectMapper();
+                Map<String, String> sanRegexMap = objectMapper.readValue(template.getSanRegex(), new TypeReference<>() {});
+
+                for (SanDto san : req.subjectAlternativeNames()) {
+                    String regex = sanRegexMap.get(san.getType().toUpperCase());
+
+                    if (regex != null && !regex.trim().isEmpty()) {
+                        if (!san.getValue().matches(regex)) {
+                            throw new SecurityException(
+                                    "SAN value '" + san.getValue() + "' for type " + san.getType() +
+                                            " does not match template policy regex: " + regex
+                            );
+                        }
+                    }
+                }
+            }
+
+            // 3️⃣ Validacija TTL
+            if (req.validityDays() > template.getTtlDays()) {
+                throw new RuntimeException("Validity exceeds template TTL: " + template.getTtlDays() + " days");
+            }
+
+            // 4️⃣ Postavljanje default ekstenzija ako nisu zadate
+            List<String> exts = req.extensions();
+            if ((exts == null || exts.isEmpty()) && template.getKeyUsage() != null) {
+                exts = List.of(template.getKeyUsage().split(","));
+            }
+
+            List<SanDto> sans = req.subjectAlternativeNames();
+            if (sans == null) sans = List.of();
+
+            // Extended Key Usage
+            if (template.getExtendedKeyUsage() != null) {
+                List<String> eku = List.of(template.getExtendedKeyUsage().split(","));
+                exts = new ArrayList<>(exts);
+                exts.addAll(eku);
+            }
+
+            req = new IntermediateRequest(
+                    req.issuerId(),
+                    req.issuerOwnerId(),
+                    req.commonName(),
+                    req.organization(),
+                    req.organizationalUnit(),
+                    req.country(),
+                    req.validityDays(),
+                    exts,
+                    sans,
+                    req.templateId()
+            );
+        }
 
         // --- Kreiranje novog sertifikata ---
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
@@ -489,44 +582,6 @@ public class CertificateService {
     }
 
 
-
-   /* private void validateCertificateChain(java.security.cert.Certificate[] chain) throws Exception {
-        if (chain == null || chain.length == 0) {
-            throw new Exception("Certificate chain is empty or null.");
-        }
-
-        for (java.security.cert.Certificate cert : chain) {
-            try {
-                ((X509Certificate) cert).checkValidity();
-            } catch (CertificateExpiredException | CertificateNotYetValidException e) {
-                throw new Exception("Certificate in the chain is not valid: " + ((X509Certificate) cert).getSubjectX500Principal().getName() + ". Razlog: " + e.getMessage());
-            }
-        }
-
-
-        for (int i = 0; i < chain.length - 1; ++i) {
-            X509Certificate currentCert = (X509Certificate) chain[i];
-            X509Certificate issuerCert = (X509Certificate) chain[i + 1];
-
-            com.ftn.bsep.pki.entity.Certificate issuerEntity = certificateRepository.findBySerialNumber(issuerCert.getSerialNumber().toString());
-            if (issuerEntity != null && issuerEntity.getCrlPath() != null && !issuerEntity.getCrlPath().isEmpty()) {
-                Path crlPath = Path.of(issuerEntity.getCrlPath());
-                RevocationService revocationService = new RevocationService(certificateRepository, encryptionService);// injektuj RevocationService u klasu i koristi ga
-                boolean revoked = revocationService.isRevokedInCrl(currentCert, crlPath);
-                if (revoked) {
-                    throw new Exception("Certificate " + currentCert.getSubjectX500Principal().getName() + " is revoked according to CRL of issuer " + issuerCert.getSubjectX500Principal().getName());
-                }
-            }
-
-            // proveri potpis kao i do sada
-            try {
-                currentCert.verify(issuerCert.getPublicKey());
-            } catch (Exception e) {
-                throw new Exception("Digital signature of the certificate in the chain is invalid: " + currentCert.getSubjectX500Principal().getName() + ". Razlog: " + e.getMessage());
-            }
-        }
-    }*/
-
     private void validateCertificateChain(java.security.cert.Certificate[] chain) throws Exception {
         if (chain == null || chain.length == 0) {
             throw new Exception("Lanac sertifikata je prazan.");
@@ -670,58 +725,17 @@ public class CertificateService {
                 ))
                 .collect(Collectors.toList());
     }
-    /*public CertificateDetails getCertificateDetails(String serialNumber) throws Exception {
-        Certificate certEntity = certificateRepository.findBySerialNumber(serialNumber);
-        if (certEntity == null) {
-            throw new Exception("Sertifikat nije pronađen u sistemu.");
+
+    public Set<String> getPermittedExtensionsForIssuer(Long issuerId) {
+        try {
+            Certificate issuerEntity = certificateRepository.findById(issuerId)
+                    .orElseThrow(() -> new RuntimeException("Issuer not found with ID: " + issuerId));
+
+            return getPermittedExtensions(issuerEntity);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get permitted extensions for issuer " + issuerId, e);
         }
-        X509Certificate cert;
-
-        // End-entity sertifikati se čuvaju kao .cer, a CA kao .p12
-        if (certEntity.getType() == CertificateType.END_ENTITY) {
-            try (var fis = new java.io.FileInputStream(certEntity.getKeyStorePath())) {
-                java.security.cert.CertificateFactory cf = java.security.cert.CertificateFactory.getInstance("X.509");
-                cert = (X509Certificate) cf.generateCertificate(fis);
-            }
-        } else {
-            String plainPassword = encryptionService.decrypt(
-                    certEntity.getKeyStorePassword(),
-                    certEntity.getOwner().getSymmetricKey()
-            );
-            KeyStore ks = KeyStore.getInstance("PKCS12");
-            try (var fis = new java.io.FileInputStream(certEntity.getKeyStorePath())) {
-                ks.load(fis, plainPassword.toCharArray());
-            }
-            cert = (X509Certificate) ks.getCertificate(serialNumber);
-        }
-
-        if (cert == null) {
-            throw new RuntimeException("Failed to load certificate from file.");
-        }
-
-        // Izvlačimo BasicConstraints
-        boolean isCa = cert.getBasicConstraints() != -1;
-        Integer pathLength = isCa ? cert.getBasicConstraints() : null;
-
-        // Izvlačimo KeyUsage
-        List<String> keyUsageList = new ArrayList<>();
-        boolean[] keyUsage = cert.getKeyUsage();
-        if (keyUsage != null) {
-            if (keyUsage[0]) keyUsageList.add("digitalSignature");
-            if (keyUsage[1]) keyUsageList.add("nonRepudiation");
-            if (keyUsage[2]) keyUsageList.add("keyEncipherment");
-            if (keyUsage[3]) keyUsageList.add("dataEncipherment");
-            if (keyUsage[4]) keyUsageList.add("keyAgreement");
-            if (keyUsage[5]) keyUsageList.add("keyCertSign");
-            if (keyUsage[6]) keyUsageList.add("cRLSign");
-            if (keyUsage[7]) keyUsageList.add("encipherOnly");
-            if (keyUsage[8]) keyUsageList.add("decipherOnly");
-        }
-
-        return new CertificateDetails(isCa, pathLength, keyUsageList);
-    }*/
-
-    // Cijela metoda sa svim pomoćnim metodama
+    }
 
     public CertificateDetails getCertificateDetails(String serialNumber) throws Exception {
         Certificate certEntity = certificateRepository.findBySerialNumber(serialNumber);
@@ -811,5 +825,41 @@ public class CertificateService {
             case 7: return "IP Address";
             default: return "Unknown";
         }
+    }
+
+    private Set<String> getPermittedExtensions(Certificate issuerEntity) throws Exception {
+        // Učitavamo X509 sertifikat issuera
+        String plainPassword = encryptionService.decrypt(
+                issuerEntity.getKeyStorePassword(),
+                issuerEntity.getOwner().getSymmetricKey()
+        );
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        try (var fis = new java.io.FileInputStream(issuerEntity.getKeyStorePath())) {
+            ks.load(fis, plainPassword.toCharArray());
+        }
+        X509Certificate issuerCert = (X509Certificate) ks.getCertificate(issuerEntity.getSerialNumber());
+        if (issuerCert == null) {
+            throw new RuntimeException("Issuer certificate not found in keystore.");
+        }
+
+        // Izvlačimo sve dozvoljene ekstenzije koje issuer ima u Set
+        Set<String> permittedExtensions = new HashSet<>();
+        boolean[] ku = issuerCert.getKeyUsage();
+        if (ku != null) {
+            if (ku[0]) permittedExtensions.add("digitalSignature");
+            if (ku[1]) permittedExtensions.add("nonRepudiation");
+            if (ku[2]) permittedExtensions.add("keyEncipherment");
+            if (ku[3]) permittedExtensions.add("dataEncipherment");
+        }
+        List<String> ekuOids = issuerCert.getExtendedKeyUsage();
+        if (ekuOids != null) {
+            for (String oid : ekuOids) {
+                if (oid.equals("1.3.6.1.5.5.7.3.1")) permittedExtensions.add("serverAuth");
+                if (oid.equals("1.3.6.1.5.5.7.3.2")) permittedExtensions.add("clientAuth");
+                if (oid.equals("1.3.6.1.5.5.7.3.3")) permittedExtensions.add("codeSigning");
+                if (oid.equals("1.3.6.1.5.5.7.3.4")) permittedExtensions.add("emailProtection");
+            }
+        }
+        return permittedExtensions;
     }
 }

@@ -21,7 +21,9 @@ import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 // Dodajte nove import-e za CDP
 
@@ -181,9 +183,9 @@ public class KeyStoreService {
 
         // 2. Key Usage & Extended Key Usage
         int keyUsageFlags = 0;
-        List<KeyPurposeId> ekuList = new ArrayList<>();
+        Set<KeyPurposeId> ekuSet = new HashSet<>();
 
-        // Obavezne ekstenzije za CA
+// Obavezne ekstenzije za CA
         if (type == CertificateType.INTERMEDIATE || type == CertificateType.ROOT) {
             keyUsageFlags |= KeyUsage.keyCertSign;
             keyUsageFlags |= KeyUsage.cRLSign;
@@ -191,17 +193,17 @@ public class KeyStoreService {
 
         if (extensions != null) {
             for (String ext : extensions) {
-                switch (ext) {
+                switch (ext.trim()) {
                     // Key Usage
                     case "digitalSignature": keyUsageFlags |= KeyUsage.digitalSignature; break;
-                    case "nonRepudiation": keyUsageFlags |= KeyUsage.nonRepudiation; break;
-                    case "keyEncipherment": keyUsageFlags |= KeyUsage.keyEncipherment; break;
+                    case "nonRepudiation":   keyUsageFlags |= KeyUsage.nonRepudiation; break;
+                    case "keyEncipherment":  keyUsageFlags |= KeyUsage.keyEncipherment; break;
                     case "dataEncipherment": keyUsageFlags |= KeyUsage.dataEncipherment; break;
                     // Extended Key Usage
-                    case "serverAuth": ekuList.add(KeyPurposeId.id_kp_serverAuth); break;
-                    case "clientAuth": ekuList.add(KeyPurposeId.id_kp_clientAuth); break;
-                    case "codeSigning": ekuList.add(KeyPurposeId.id_kp_codeSigning); break;
-                    case "emailProtection": ekuList.add(KeyPurposeId.id_kp_emailProtection); break;
+                    case "serverAuth":      ekuSet.add(KeyPurposeId.id_kp_serverAuth); break;
+                    case "clientAuth":      ekuSet.add(KeyPurposeId.id_kp_clientAuth); break;
+                    case "codeSigning":     ekuSet.add(KeyPurposeId.id_kp_codeSigning); break;
+                    case "emailProtection": ekuSet.add(KeyPurposeId.id_kp_emailProtection); break;
                 }
             }
         }
@@ -209,8 +211,10 @@ public class KeyStoreService {
         if (keyUsageFlags > 0) {
             certBuilder.addExtension(Extension.keyUsage, true, new KeyUsage(keyUsageFlags));
         }
-        if (!ekuList.isEmpty()) {
-            certBuilder.addExtension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(ekuList.toArray(new KeyPurposeId[0])));
+
+        if (!ekuSet.isEmpty()) {
+            ExtendedKeyUsage eku = new ExtendedKeyUsage(ekuSet.toArray(new KeyPurposeId[0]));
+            certBuilder.addExtension(Extension.extendedKeyUsage, false, eku);
         }
 
         // 3. Subject Alternative Name (SAN)
