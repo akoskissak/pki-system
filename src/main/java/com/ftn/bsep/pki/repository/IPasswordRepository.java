@@ -8,7 +8,8 @@ import java.util.List;
 
 public interface IPasswordRepository extends JpaRepository<Password, Long> {
 
-    List<Password> findByOwnerId(Long ownerId);
+    @Query("SELECT p FROM Password p JOIN p.shares s WHERE s.sharedByUserId = ?1")
+    List<Password> findBySharedByUserId(Long sharedByUserId);
 
     @Query("SELECT p FROM Password p JOIN p.shares s WHERE s.userId = ?1")
     List<Password> findBySharedUserId(Long userId);

@@ -1,7 +1,6 @@
 package com.ftn.bsep.pki.controller;
 
-import com.ftn.bsep.pki.dto.PasswordDto;
-import com.ftn.bsep.pki.dto.SharePasswordDto;
+import com.ftn.bsep.pki.dto.*;
 import com.ftn.bsep.pki.entity.Password;
 import com.ftn.bsep.pki.entity.User;
 import com.ftn.bsep.pki.repository.IUserRepository;
@@ -12,7 +11,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/passwords")
@@ -45,11 +46,34 @@ public class PasswordController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('END_USER')")
-    public ResponseEntity<List<Password>> getMyPasswords(Principal principal) {
+    public ResponseEntity<List<PasswordDtoResponse>> getMyPasswords(Principal principal) {
         User user = getLoggedInUser(principal).orElseThrow(() -> new RuntimeException("User not found"));
 
         List<Password> passwords = passwordService.getPasswordsForUser(user.getId());
-        return ResponseEntity.ok(passwords);
+        List<PasswordDtoResponse> dtoList = passwords.stream()
+                .map(password -> {
+                    PasswordDtoResponse dto = new PasswordDtoResponse();
+                    dto.setId(password.getId());
+                    dto.setSiteName(password.getSiteName());
+                    dto.setUsername(password.getUsername());
+                    dto.setOwnerId(password.getOwner().getId());
+                    dto.setCreatedAt(password.getCreatedAt());
+
+                    List<SharedPasswordDtoResponse> sharesDto = password.getShares().stream()
+                            .map(share -> {
+                                SharedPasswordDtoResponse shareDto = new SharedPasswordDtoResponse();
+                                shareDto.setTargetUserId(share.getUserId());
+                                shareDto.setEncryptedPasswordForTargetUser(share.getEncryptedPassword());
+                                shareDto.setSharedAt(share.getSharedAt());
+                                shareDto.setOwnerId(share.getSharedByUserId());
+                                shareDto.setTargetUserEmail(userRepository.findById(share.getUserId()).get().getEmail());
+                                return shareDto;
+                            }).collect(Collectors.toList());
+                    dto.setShares(sharesDto);
+                    return dto;
+                }).collect(Collectors.toList());
+
+        return ResponseEntity.ok(dtoList);
     }
 
     @PostMapping("/{passwordId}/share")
@@ -63,6 +87,48 @@ public class PasswordController {
 
         passwordService.sharePassword(passwordId, owner.getId(), shareDto.getTargetUserId(), shareDto.getEncryptedPasswordForTargetUser());
 
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/shared-with-me")
+    @PreAuthorize("hasAuthority('END_USER')")
+    public ResponseEntity<List<SharedWithMePasswordDto>> getSharedWithMe(Principal principal) {
+        User currentUser = getLoggedInUser(principal)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        List<Password> sharedPasswords = passwordService.getPasswordsSharedWithUser(currentUser.getId());
+
+        List<SharedWithMePasswordDto> dtoList = sharedPasswords.stream()
+                .flatMap(password -> password.getShares().stream()
+                        .filter(share -> Objects.equals(share.getUserId(), currentUser.getId()) && !Objects.equals(share.getSharedByUserId(), currentUser.getId()))
+                        .map(share -> new SharedWithMePasswordDto(
+                                password.getId(),
+                                password.getSiteName(),
+                                password.getUsername(),
+                                String.valueOf(password.getOwner().getId()),
+                                password.getOwner().getEmail(),
+                                share.getSharedAt(),
+                                share.getEncryptedPassword()
+                        ))
+                ).collect(Collectors.toList());
+
+        return ResponseEntity.ok(dtoList);
+    }
+
+    @DeleteMapping("/{passwordId}")
+    @PreAuthorize("hasAuthority('END_USER')")
+    public ResponseEntity<Void> deletePassword(@PathVariable Long passwordId, Principal principal) {
+        User currentUser = getLoggedInUser(principal)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Password password = passwordService.getPasswordById(passwordId)
+                .orElseThrow(() -> new RuntimeException("Password not found"));
+
+        if (!Objects.equals(password.getOwner().getId(), currentUser.getId())) {
+            return ResponseEntity.status(403).build();
+        }
+
+        passwordService.deletePassword(passwordId);
         return ResponseEntity.ok().build();
     }
 }
