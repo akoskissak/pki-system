@@ -6,6 +6,8 @@ import com.ftn.bsep.pki.entity.Certificate;
 import com.ftn.bsep.pki.entity.CertificateTemplate;
 import com.ftn.bsep.pki.repository.ICertificateRepository;
 import com.ftn.bsep.pki.repository.ICertificateTemplateRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
@@ -20,7 +22,8 @@ public class CertificateTemplateService {
     private final ICertificateTemplateRepository templateRepository;
     private final ICertificateRepository certificateRepository;
     private final EncryptionService encryptionService;
-
+    private static final Logger logger = LoggerFactory.getLogger(CertificateTemplateService.class);
+    
     public CertificateTemplateService(ICertificateTemplateRepository templateRepository,
                                       ICertificateRepository certificateRepository, EncryptionService encryptionService) {
         this.templateRepository = templateRepository;
@@ -28,8 +31,14 @@ public class CertificateTemplateService {
         this.encryptionService = encryptionService;
     }
     public CertificateTemplateResponse create(CertificateTemplateRequest req) {
+        logger.info("Request to create certificate template: name='{}', issuerId={}", req.name(), req.issuerId());
+
         Certificate issuer = certificateRepository.findById(req.issuerId())
-                .orElseThrow(() -> new RuntimeException("Issuer not found"));
+                .orElseThrow(() -> {
+                    logger.error("Failed to create template. Issuer with id={} not found.", req.issuerId());
+
+                    return new RuntimeException("Issuer not found");
+                });
 
         validateExtensionPolicy(req, issuer);
 
@@ -43,6 +52,9 @@ public class CertificateTemplateService {
         template.setExtendedKeyUsage(req.extendedKeyUsage());
 
         CertificateTemplate saved = templateRepository.save(template);
+        
+        logger.info("Successfully created certificate template id={} with name='{}' for issuerId={}",
+                saved.getId(), saved.getName(), issuer.getId());
 
         return toResponse(saved);
     }

@@ -1,5 +1,6 @@
 package com.ftn.bsep.pki.service;
 
+import com.ftn.bsep.pki.controller.RevocationController;
 import com.ftn.bsep.pki.entity.Certificate;
 import com.ftn.bsep.pki.repository.ICertificateRepository;
 import org.bouncycastle.asn1.DEROctetString;
@@ -12,6 +13,8 @@ import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CRLConverter;
 import org.bouncycastle.cert.X509CRLHolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.FileOutputStream;
@@ -33,6 +36,7 @@ public class RevocationService {
     private final EncryptionService encryptionService;
 
     private final Path crlFolder = Path.of("crl");
+    private static final Logger logger = LoggerFactory.getLogger(RevocationController.class);
 
     public RevocationService(ICertificateRepository certificateRepository, EncryptionService encryptionService) {
         this.certificateRepository = certificateRepository;
@@ -40,20 +44,36 @@ public class RevocationService {
     }
 
     public void revokeCertificate(Long certId, int reason, Instant revokedAt, Long revokerUserId) throws Exception {
+        logger.info("Starting revocation process for certId={} by userId={} at {}", certId, revokerUserId, revokedAt);
+
         Certificate certToRevoke  = certificateRepository.findById(certId)
-                .orElseThrow(() -> new IllegalArgumentException("Certificate not found"));
+                .orElseThrow(() -> {
+                    logger.error("Certificate with id={} not found. Revocation aborted.", certId);
+                    return new IllegalArgumentException("Certificate not found");
+                });
 
         if (certToRevoke.isRevoked()) {
+            logger.warn("Certificate id={} (serialNumber={}) is already revoked. Skipping revocation.",
+                    certToRevoke.getId(), certToRevoke.getSerialNumber());
             return;
         }
+        logger.debug("Revoking certificate: id={}, serialNumber={}, reason={}, revokedAt={}",
+                certToRevoke.getId(), certToRevoke.getSerialNumber(), reason, revokedAt);
 
         recursiveRevoke(certToRevoke, reason, revokedAt);
 
         Certificate issuer = certToRevoke.getParentCertificate();
         if (issuer == null) {
+            logger.info("Certificate id={} is a ROOT certificate. Using self as issuer.", certToRevoke.getId());
             issuer = certToRevoke;
         }
+        
+        logger.info("Generating CRL for issuer certId={} (serialNumber={})", issuer.getId(), issuer.getSerialNumber());
         generateCrlForIssuer(issuer.getId());
+
+        logger.info("Successfully revoked certId={} (serialNumber={}) and updated CRL for issuer={}",
+                certToRevoke.getId(), certToRevoke.getSerialNumber(), issuer.getSerialNumber());
+
     }
 
 
