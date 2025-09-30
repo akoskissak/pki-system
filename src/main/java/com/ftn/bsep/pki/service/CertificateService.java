@@ -47,6 +47,12 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.net.MalformedURLException;
+
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -1031,5 +1037,32 @@ public class CertificateService {
             throw new RuntimeException("Greška pri izvlačenju public key-a za korisnika: " + user.getFirstName() + " " + user.getLastName(), e);
         }
 
+    }
+
+    public Resource loadCertificateResource(String serialNumber) {
+        // 1. Pronađi sertifikat u bazi na osnovu serijskog broja
+        Certificate certEntity = certificateRepository.findBySerialNumber(serialNumber);
+        if (certEntity == null) {
+            throw new RuntimeException("Sertifikat sa serijskim brojem " + serialNumber + " nije pronađen.");
+        }
+
+        // 2. Proveri da li je u pitanju CA sertifikat (ROOT ili INTERMEDIATE)
+        if (certEntity.getType() != CertificateType.ROOT && certEntity.getType() != CertificateType.INTERMEDIATE) {
+            throw new RuntimeException("Ovaj endpoint je namenjen samo za CA sertifikate.");
+        }
+
+        try {
+            // 3. Uzmi punu putanju do .p12 fajla iz baze
+            Path filePath = Paths.get(certEntity.getKeyStorePath());
+            Resource resource = new UrlResource(filePath.toUri());
+
+            if (resource.exists() && resource.isReadable()) {
+                return resource;
+            } else {
+                throw new RuntimeException("Fajl sertifikata nije pronađen ili se ne može pročitati na putanji: " + filePath);
+            }
+        } catch (MalformedURLException e) {
+            throw new RuntimeException("Greška prilikom kreiranja putanje do fajla.", e);
+        }
     }
 }
