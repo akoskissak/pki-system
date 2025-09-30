@@ -238,4 +238,24 @@ public class CertificateController {
             return ResponseEntity.notFound().build();
         }
     }
+
+    @GetMapping("/ca/{serialNumber}/download")
+    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_CA_USER')")
+    public ResponseEntity<Resource> downloadCaCertificate(@PathVariable String serialNumber) {
+        try {
+            Resource resource = service.loadCertificateResource(serialNumber);
+
+            String contentType = "application/x-pkcs12";
+
+            String headerValue = "attachment; filename=\"" + resource.getFilename() + "\"";
+
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(contentType))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, headerValue)
+                    .body(resource);
+
+        } catch (RuntimeException ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
+    }
 }
