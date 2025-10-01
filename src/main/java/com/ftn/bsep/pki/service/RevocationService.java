@@ -103,8 +103,15 @@ public class RevocationService {
         Certificate issuerEntity = certificateRepository.findById(issuerId)
                 .orElseThrow(() -> new IllegalArgumentException("Issuer not found"));
 
-        String plainPassword = encryptionService.decrypt(issuerEntity.getKeyStorePassword(), issuerEntity.getOwner().getSymmetricKey());
+        //String plainPassword = encryptionService.decrypt(issuerEntity.getKeyStorePassword(), issuerEntity.getOwner().getSymmetricKey());
+        String encryptedUserKey = issuerEntity.getOwner().getSymmetricKey();
+        if (encryptedUserKey == null || encryptedUserKey.isEmpty()) {
+            throw new IllegalStateException("Vlasnik sertifikata izdavaoca nema simetrični ključ.");
+        }
 
+        String plainUserKey = encryptionService.decryptUserKey(encryptedUserKey);
+
+        String plainPassword = encryptionService.decrypt(issuerEntity.getKeyStorePassword(), plainUserKey);
         KeyStore ks = KeyStore.getInstance("PKCS12");
         try (var fis = new java.io.FileInputStream(issuerEntity.getKeyStorePath())) {
             ks.load(fis, plainPassword.toCharArray());
