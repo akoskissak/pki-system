@@ -138,7 +138,12 @@ public class CertificateService {
                 keyStorePassword.toCharArray()
         );
         logger.info("Sertifikat sacuvan u keystore: {}", p12);
-        String encryptedPassword = encryptionService.encrypt(keyStorePassword, owner.getSymmetricKey());
+        //String encryptedPassword = encryptionService.encrypt(keyStorePassword, owner.getSymmetricKey());
+
+        String encryptedUserKey = owner.getSymmetricKey();
+        String plainUserKey = encryptionService.decryptUserKey(encryptedUserKey);
+        // enkripcija ključa pomoću dekriptovanog simetričnog ključa korisnika
+        String encryptedPassword = encryptionService.encrypt(keyStorePassword, plainUserKey);
         logger.info("Keystore lozinka enkriptovana za userId={}", req.ownerId());
 
         boolean isEncryptionCertificate = false;
@@ -237,10 +242,12 @@ public class CertificateService {
 
         logger.info("Issuer owner loaded: {}", issuerOwner.getEmail());
 
-        String plainPassword = encryptionService.decrypt(
+        /*String plainPassword = encryptionService.decrypt(
                 issuerCertEntity.getKeyStorePassword(),
                 issuerOwner.getSymmetricKey()
-        );
+        );*/
+
+        String plainPassword = getDecryptedKeystorePassword(issuerCertEntity);
         logger.debug("Decrypted keystore password length: {}", plainPassword.length());
 
         KeyStore ks = KeyStore.getInstance("PKCS12");
@@ -415,7 +422,10 @@ public class CertificateService {
         );
         logger.info("Saved new keystore: {}", p12);
 
-        String encryptedPassword = encryptionService.encrypt(keyStorePassword, issuerOwner.getSymmetricKey());
+        //String encryptedPassword = encryptionService.encrypt(keyStorePassword, issuerOwner.getSymmetricKey());
+        String encryptedUserKey = issuerOwner.getSymmetricKey();
+        String plainUserKey = encryptionService.decryptUserKey(encryptedUserKey);
+        String encryptedPassword = encryptionService.encrypt(keyStorePassword, plainUserKey);
 
         Certificate entity = new Certificate();
         entity.setSerialNumber(newCert.getSerialNumber().toString());
@@ -499,10 +509,12 @@ public class CertificateService {
         
         logger.info("End-Entity sertifikat će pripadati korisniku: {}", owner.getEmail());
 
-        String plainPassword = encryptionService.decrypt(
+        /*String plainPassword = encryptionService.decrypt(
                 issuerCertEntity.getKeyStorePassword(),
                 issuerOwner.getSymmetricKey()
-        );
+        );*/
+
+        String plainPassword = getDecryptedKeystorePassword(issuerCertEntity);
         logger.debug("Dekriptovan password za issuer keystore (dužina={})", plainPassword.length());
 
         KeyStore ks = KeyStore.getInstance("PKCS12");
@@ -872,10 +884,12 @@ public class CertificateService {
                 cert = (X509Certificate) cf.generateCertificate(fis);
             }
         } else {
-            String plainPassword = encryptionService.decrypt(
+            /*String plainPassword = encryptionService.decrypt(
                     certEntity.getKeyStorePassword(),
                     certEntity.getOwner().getSymmetricKey()
-            );
+            );*/
+
+            String plainPassword = getDecryptedKeystorePassword(certEntity);
             KeyStore ks = KeyStore.getInstance("PKCS12");
             try (var fis = new java.io.FileInputStream(certEntity.getKeyStorePath())) {
                 ks.load(fis, plainPassword.toCharArray());
@@ -952,10 +966,11 @@ public class CertificateService {
 
     private Set<String> getPermittedExtensions(Certificate issuerEntity) throws Exception {
         // Učitavamo X509 sertifikat issuera
-        String plainPassword = encryptionService.decrypt(
+        /*String plainPassword = encryptionService.decrypt(
                 issuerEntity.getKeyStorePassword(),
                 issuerEntity.getOwner().getSymmetricKey()
-        );
+        );*/
+        String plainPassword = getDecryptedKeystorePassword(issuerEntity);
         KeyStore ks = KeyStore.getInstance("PKCS12");
         try (var fis = new java.io.FileInputStream(issuerEntity.getKeyStorePath())) {
             ks.load(fis, plainPassword.toCharArray());
@@ -1064,5 +1079,18 @@ public class CertificateService {
         } catch (MalformedURLException e) {
             throw new RuntimeException("Greška prilikom kreiranja putanje do fajla.", e);
         }
+    }
+    private String getDecryptedKeystorePassword(Certificate certEntity) throws Exception {
+        // Tražimo enkriptovani ključ korisnika
+        String encryptedUserKey = certEntity.getOwner().getSymmetricKey();
+        if (encryptedUserKey == null || encryptedUserKey.isEmpty()) {
+            throw new IllegalStateException("Korisnik " + certEntity.getOwner().getEmail() + " nema dodeljen simetrični ključ.");
+        }
+
+        // Dekriptujemo pomoću glavnog ključa
+        String plainUserKey = encryptionService.decryptUserKey(encryptedUserKey);
+
+        // Pomoću njega dekriptujemo lozinku od keystore-a
+        return encryptionService.decrypt(certEntity.getKeyStorePassword(), plainUserKey);
     }
 }

@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,6 +30,7 @@ public class UserService {
   private final PasswordStrengthService passwordStrengthService;
   private final Logger logger = LoggerFactory.getLogger(UserService.class);
   private final ICAUserDetailsRepository caUserDetailsRepository;
+  private final EncryptionService encryptionService;
 
   public ApiResponse register(RegisterRequest request) {
     logger.info("Registracija: pokusaj korisnika sa emailom {}", request.getEmail());
@@ -201,7 +203,18 @@ public class UserService {
     user.setRole(caRole);
     user.setPassword(passwordEncoder.encode(temporaryPassword));
     user.setEnabled(true);
-    
+
+    // Generisanje i enkripcija simetričnog ključa za CA korisnika
+    try {
+      String plainUserKey = encryptionService.generateSymmetricKey();
+      String encryptedUserKey = encryptionService.encryptUserKey(plainUserKey);
+      user.setSymmetricKey(encryptedUserKey);
+
+    } catch (Exception e) {
+      logger.error("Greška prilikom generisanja i enkripcije simetričnog ključa za korisnika {}", user.getEmail(), e);
+      throw new RuntimeException("Greška prilikom generisanja i enkripcije simetričnog ključa.", e);
+    }
+
     userRepository.save(user);
 
     CAUserDetails caDetails = new CAUserDetails(user);
