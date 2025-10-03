@@ -29,6 +29,7 @@ import java.nio.file.Paths;
 import java.security.Principal;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/certificates")
@@ -126,15 +127,14 @@ public class CertificateController {
                                 c.getOwner() != null ? c.getOwner().getId() : null,
                                 c.getType().name(),
                                 c.isRevoked(),
-                                details // <-- Dodajemo detalje
+                                details
                         );
                     } catch (Exception e) {
-                        // U slučaju greške, vraćamo null ili DTO sa praznim detaljima
                         System.err.println("Failed to get details for cert " + c.getSerialNumber() + ": " + e.getMessage());
                         return new CertificateResponse(c.getId(), c.getSerialNumber(), c.getSubjectCommonName(), c.getIssuerCommonName(), c.getKeyStorePath(), c.getNotAfter(), c.getOwner() != null ? c.getOwner().getId() : null, c.getType().name(), null, null);
                     }
                 })
-                .filter(response -> response != null) // Uklanjamo one za koje nismo uspeli da dobijemo detalje
+                .filter(response -> response != null)
                 .toList();
 
         return ResponseEntity.ok(certResponses);
@@ -226,6 +226,36 @@ public class CertificateController {
             }
         } catch (IOException ex) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GetMapping("/{issuerId}/permitted-extensions")
+    public ResponseEntity<Set<String>> getPermittedExtensions(@PathVariable Long issuerId) {
+        try {
+            Set<String> extensions = service.getPermittedExtensionsForIssuer(issuerId);
+            return ResponseEntity.ok(extensions);
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @GetMapping("/ca/{serialNumber}/download")
+    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_CA_USER')")
+    public ResponseEntity<Resource> downloadCaCertificate(@PathVariable String serialNumber) {
+        try {
+            Resource resource = service.loadCertificateResource(serialNumber);
+
+            String contentType = "application/x-pkcs12";
+
+            String headerValue = "attachment; filename=\"" + resource.getFilename() + "\"";
+
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(contentType))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, headerValue)
+                    .body(resource);
+
+        } catch (RuntimeException ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
         }
     }
 }

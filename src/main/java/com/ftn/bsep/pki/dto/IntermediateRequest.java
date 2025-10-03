@@ -11,5 +11,6 @@ public record IntermediateRequest(
         String country,
         int validityDays,
         List<String> extensions,
-        List<SanDto> subjectAlternativeNames
+        List<SanDto> subjectAlternativeNames,
+        Long templateId
 ) {}

@@ -5,6 +5,8 @@ import com.ftn.bsep.pki.entity.Password;
 import com.ftn.bsep.pki.entity.User;
 import com.ftn.bsep.pki.repository.IUserRepository;
 import com.ftn.bsep.pki.service.PasswordService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -20,6 +22,7 @@ import java.util.stream.Collectors;
 public class PasswordController {
     private final PasswordService passwordService;
     private final IUserRepository userRepository;
+    private static final Logger logger = LoggerFactory.getLogger(PasswordController.class);
 
     public PasswordController(PasswordService passwordService, IUserRepository userRepository) {
         this.passwordService = passwordService;
@@ -49,6 +52,8 @@ public class PasswordController {
     public ResponseEntity<List<PasswordDtoResponse>> getMyPasswords(Principal principal) {
         User user = getLoggedInUser(principal).orElseThrow(() -> new RuntimeException("User not found"));
 
+        logger.info("User id={} ({}) requested their password list", user.getId(), user.getEmail());
+
         List<Password> passwords = passwordService.getPasswordsForUser(user.getId());
         List<PasswordDtoResponse> dtoList = passwords.stream()
                 .map(password -> {
@@ -67,12 +72,16 @@ public class PasswordController {
                                 shareDto.setSharedAt(share.getSharedAt());
                                 shareDto.setOwnerId(share.getSharedByUserId());
                                 shareDto.setTargetUserEmail(userRepository.findById(share.getUserId()).get().getEmail());
+                                logger.debug("Shared password id={} shared with userId={} at {}",
+                                        password.getId(), share.getUserId(), share.getSharedAt());
+
                                 return shareDto;
                             }).collect(Collectors.toList());
                     dto.setShares(sharesDto);
                     return dto;
                 }).collect(Collectors.toList());
-
+        
+        logger.info("Returning {} passwords for user id={}", dtoList.size(), user.getId());
         return ResponseEntity.ok(dtoList);
     }
 
