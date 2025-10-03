@@ -13,13 +13,12 @@ import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
 import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x500.style.IETFUtils;
-import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.Extensions;
-import org.bouncycastle.asn1.x509.KeyUsage;
+import org.bouncycastle.asn1.x509.*;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
+import org.bouncycastle.util.IPAddress;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -395,7 +394,7 @@ public class CertificateService {
         issuer.setX500Name(X500Name.getInstance(issuerCert.getSubjectX500Principal().getEncoded()));
 
         X509Certificate newCert = keyStoreService.generateEECertificate(
-                subject, issuer, CertificateType.END_ENTITY, req.extensions()
+                subject, issuer, CertificateType.END_ENTITY, req.extensions(), req.subjectAlternativeNames()
         );
 
         Path certPath = keyStoreService.saveEECertificate(newCert);
@@ -469,6 +468,44 @@ public class CertificateService {
             }
         }
 
+        // 🆕 Čitanje Subject Alternative Name (SAN) iz CSR-a
+        List<SanDto> subjectAlternativeNames = new ArrayList<>();
+        if (extensions != null) {
+            Extension sanExtension = extensions.getExtension(Extension.subjectAlternativeName);
+            if (sanExtension != null) {
+                GeneralNames generalNames = GeneralNames.getInstance(sanExtension.getParsedValue());
+                for (GeneralName name : generalNames.getNames()) {
+                    String value = name.getName().toString();
+                    String type;
+                    switch (name.getTagNo()) {
+                        case GeneralName.dNSName:
+                            type = "DNS";
+                            break;
+                        case GeneralName.iPAddress:
+                            try {
+                                byte[] ipBytes = org.bouncycastle.asn1.ASN1OctetString.getInstance(name.getName()).getOctets();
+
+                                value = java.net.InetAddress.getByAddress(ipBytes).getHostAddress();
+                                type = "IP";
+                            } catch (java.net.UnknownHostException e) {
+                                System.err.println("Greška pri parsiranju IP adrese iz SAN-a: " + e.getMessage());
+                                continue;
+                            }
+                            break;
+                        case GeneralName.rfc822Name:
+                            type = "EMAIL";
+                            break;
+                        case GeneralName.uniformResourceIdentifier:
+                            type = "URI";
+                            break;
+                        default:
+                            continue; // Preskoči nepoznate tipove
+                    }
+                    subjectAlternativeNames.add(new SanDto(type, value));
+                }
+            }
+        }
+
         Certificate caCert = certificateRepository.findBySerialNumber(pendingRequest.getIssuerId());
         if (caCert == null) {
             throw new IllegalArgumentException("Issuer CA not found.");
@@ -485,7 +522,8 @@ public class CertificateService {
                 organizationalUnit,
                 country,
                 pendingRequest.getValidityDays(),
-                extList
+                extList,
+                subjectAlternativeNames
         );
 
         Long ownerId =  pendingRequest.getOwnerId();

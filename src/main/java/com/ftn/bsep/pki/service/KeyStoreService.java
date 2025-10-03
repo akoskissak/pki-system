@@ -38,8 +38,8 @@ public class KeyStoreService {
             Subject subject,
             Issuer issuer,
             CertificateType type,
-            List<String> extensions
-    ) throws Exception {
+            List<String> extensions,
+            List<SanDto> subjectAlternativeNames) throws Exception {
         ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
                 .setProvider("BC")
                 .build(issuer.getPrivateKey());
@@ -86,6 +86,24 @@ public class KeyStoreService {
 
         if (keyUsageFlags > 0) {
             certBuilder.addExtension(Extension.keyUsage, true, new KeyUsage(keyUsageFlags));
+        }
+
+        if (subjectAlternativeNames != null && !subjectAlternativeNames.isEmpty()) {
+            List<GeneralName> generalNames = new ArrayList<>();
+            for (SanDto san : subjectAlternativeNames) {
+                int tagNo;
+                switch (san.getType().toUpperCase()) {
+                    case "DNS": tagNo = GeneralName.dNSName; break;
+                    case "IP": tagNo = GeneralName.iPAddress; break;
+                    case "EMAIL": tagNo = GeneralName.rfc822Name; break;
+                    case "URI": tagNo = GeneralName.uniformResourceIdentifier; break;
+                    default: continue;
+                }
+                generalNames.add(new GeneralName(tagNo, san.getValue()));
+            }
+            if (!generalNames.isEmpty()) {
+                certBuilder.addExtension(Extension.subjectAlternativeName, false, new GeneralNames(generalNames.toArray(new GeneralName[0])));
+            }
         }
 
         // 🆕 DODAVANJE CRL DISTRIBUTION POINT (CDP) EKSTENZIJE
