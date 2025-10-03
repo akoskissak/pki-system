@@ -26,7 +26,9 @@ public class User {
   private String organization;
 
   private boolean enabled = false;
-
+  
+  private String secret2FA;
+  private boolean is2FAEnabled = false;
   @ManyToOne(fetch = FetchType.EAGER)
   @JoinColumn(name = "role_id", referencedColumnName = "id")
   private Role role;

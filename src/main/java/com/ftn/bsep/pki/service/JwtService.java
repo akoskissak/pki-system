@@ -1,6 +1,7 @@
 package com.ftn.bsep.pki.service;
  
 import com.ftn.bsep.pki.entity.Role;
+import com.ftn.bsep.pki.entity.User;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,7 +21,7 @@ public class JwtService {
     @Value("${jwt.expiration}")
     private long expiration;
     
-    public String generateToken(String email, Role role, Long userId, boolean mustChangePassword) {
+    public String generateToken(String email, Role role, Long userId, boolean mustChangePassword, boolean is2FAEnabled) {
         String tokenId = UUID.randomUUID().toString();
         
         JwtBuilder builder = Jwts.builder()
@@ -28,6 +29,7 @@ public class JwtService {
                             .setSubject(email)
                             .claim("role", role.getName())
                             .claim("id", userId)
+                            .claim("is2FAEnabled", is2FAEnabled)
                             .setIssuedAt(new Date())
                             .setExpiration(new Date(System.currentTimeMillis() + expiration))
                             .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8)), SignatureAlgorithm.HS256);
@@ -37,7 +39,25 @@ public class JwtService {
         
         return builder.compact();
     }
-    
+
+    public String generateTempToken(User user) {
+        String tokenId = UUID.randomUUID().toString();
+
+        long tempExpiration = 5 * 60 * 1000; // 5 minuta
+
+        JwtBuilder builder = Jwts.builder()
+                .setId(tokenId)
+                .setSubject(user.getEmail())
+                .claim("role", user.getRole().getName())
+                .claim("id", user.getId())
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + tempExpiration))
+                .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8)), SignatureAlgorithm.HS256);
+
+        return builder.compact();
+    }
+
+
     public boolean validateToken(String token) {
         try {
             Jwts.parserBuilder().setSigningKey(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8))).build().parseClaimsJws(token);
@@ -53,5 +73,21 @@ public class JwtService {
     
     public String getEmailFromToken(String token) {
         return getTokenClaims(token).getSubject();
+    }
+
+    public Long parseUserIdFromTempToken(String tempToken) {
+        if (tempToken == null || tempToken.isEmpty()) {
+            throw new RuntimeException("Temp token is missing");
+        }
+        
+        if (!validateToken(tempToken)) {
+            throw new RuntimeException("Invalid or expired temp token");
+        }
+        
+        Claims claims = getTokenClaims(tempToken);
+        
+        Long userId = claims.get("id", Long.class);
+        
+        return userId;
     }
 }
