@@ -4,10 +4,7 @@ import com.ftn.bsep.pki.dto.*;
 import com.ftn.bsep.pki.entity.CAUserDetails;
 import com.ftn.bsep.pki.entity.RoleName;
 import com.ftn.bsep.pki.entity.User;
-import com.ftn.bsep.pki.service.JwtService;
-import com.ftn.bsep.pki.service.PasswordResetService;
-import com.ftn.bsep.pki.service.RecaptchaService;
-import com.ftn.bsep.pki.service.UserService;
+import com.ftn.bsep.pki.service.*;
 import com.ftn.bsep.pki.session.SessionInfo;
 import com.ftn.bsep.pki.session.SessionManager;
 import io.micrometer.common.util.internal.logging.InternalLogger;
@@ -72,15 +69,23 @@ public class AuthController {
     }
 
     User user = userService.getByEmail(request.getEmail());
-
+    
+    // 2FA
+    if(user.is2FAEnabled()) {
+        String tempToken = jwtService.generateTempToken(user);
+        LoginData data = new LoginData(null, true, tempToken);
+        return ResponseEntity.ok(ApiResponse.successWithData("2FA required", data));
+    }
+    
     boolean mustChangePassword = userService.mustChangePassword(user);
     
-    String token = jwtService.generateToken(request.getEmail(), user.getRole(), user.getId(), mustChangePassword);
+    String token = jwtService.generateToken(request.getEmail(), user.getRole(), user.getId(), mustChangePassword, user.is2FAEnabled());
     
     SessionInfo sessionInfo = userService.createSession(jwtService.getTokenClaims(token).getId(), request.getEmail(), req);
     sessionManager.addSession(sessionInfo);
     
-    return ResponseEntity.ok(ApiResponse.successWithData("Successful login", token));
+    LoginData data = new LoginData(token, false, null);
+    return ResponseEntity.ok(ApiResponse.successWithData("Successful login", data));
   }
   
   @PostMapping("/forgot-password")

@@ -20,6 +20,7 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(auth -> auth
                   .requestMatchers("/api/auth/**").permitAll()
+                  .requestMatchers("/api/2fa/**").permitAll()
                   .requestMatchers("/api/admin/**").hasAuthority("ADMIN")
                   .requestMatchers("/api/ca/**").hasAuthority("CA_USER")
                   .requestMatchers("/api/user/**").hasAuthority("END_USER")

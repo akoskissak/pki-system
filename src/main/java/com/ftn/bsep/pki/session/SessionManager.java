@@ -38,10 +38,6 @@ public class SessionManager {
         }
     }
     
-    public void removeExpiredSessions(LocalDateTime expiryTime) {
-        sessions.values().removeIf(sessionInfo -> sessionInfo.getIssuedAt().isBefore(expiryTime));
-    }
-    
     public Map<String, SessionInfo> getSessions() {
         return sessions;
     }
