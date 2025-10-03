@@ -13,5 +13,5 @@ public record EndEntityRequest(
         String organizationalUnit,
         String country,
         int validityDays,
-        List<String> extensions
-) {}
+        List<String> extensions,
+        List<SanDto> subjectAlternativeNames) {}
