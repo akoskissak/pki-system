@@ -128,7 +128,7 @@ public class CertificateService {
 
         String keyStorePassword = RandomStringUtils.randomAlphanumeric(16);
 
-        System.out.println("Keystore lozinka za testiranje je: " + keyStorePassword);
+        logger.info("Keystore lozinka za testiranje je: {}", keyStorePassword);
 
         Path p12 = keyStoreService.saveCertificateChain(
                 chain,
@@ -514,6 +514,7 @@ public class CertificateService {
         );*/
 
         String plainPassword = getDecryptedKeystorePassword(issuerCertEntity);
+        logger.info("Intermediate CA sifra je za AKOS-: {}", plainPassword);
         logger.debug("Dekriptovan password za issuer keystore (dužina={})", plainPassword.length());
 
         KeyStore ks = KeyStore.getInstance("PKCS12");
