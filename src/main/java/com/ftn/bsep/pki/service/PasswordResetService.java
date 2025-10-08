@@ -57,7 +57,7 @@ public class PasswordResetService {
             logger.info("Kreiran novi token za reset lozinke za korisnika {}", email);
         }
 
-        String resetUrl = "http://localhost:4200/reset-password?token=" + resetToken.getToken();
+        String resetUrl = "https://localhost:4200/reset-password?token=" + resetToken.getToken();
 
         emailService.sendEmail(user.getEmail(), "PKI system account password reset", buildEmail(user.getFirstName(), resetUrl));
         logger.info("Poslat email za reset lozinke korisniku {}", email);
