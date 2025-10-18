@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This project implements a **Public Key Infrastructure (PKI)** system and a **Shared Password Manager** as a requirement for the "Security in Electronic Business Systems" (BSEP) course. The **backend** is developed using **Java Spring Boot** and associated frameworks, while the **frontend** is a separate application developed in **Angular**.
+This project implements a **Public Key Infrastructure (PKI)** system and a **Shared Password Manager** as a requirement for the "Security in Electronic Business Systems" (BSEP) course. The **backend** is developed using **Java Spring Boot** and associated frameworks, while the **frontend** is a separate application developed in **Angular**. [BSEP Angular Frontend](https://github.com/akoskissak/pki-system-frontend)
 
 The PKI is designed to manage digital certificates, ensuring secure user and device authentication, as well as communication protection. The Shared Password Manager offers secure storage and sharing of confidential data (like passwords and access credentials) using the user's existing public/private key pair from the PKI system.
 
